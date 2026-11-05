@@ -1,0 +1,829 @@
+> **DRAFT** — Working draft of the coding guidelines and mechanical rule catalogue (155 rules, 123 with full statements) at the time of writing.
+
+# Coding guidelines for model-written code
+
+## 1. The idea in one page
+
+When a language model writes most of a code base and a person steers, prose style guides fail. Models follow local patterns, take shortcuts to make tests pass, and quietly erode module boundaries unless every boundary is held by a fast, automated check.
+
+This guide states **123 rules with full rule statements** (plus **32 additional catalogued rows** in the rule table that do not have a prose statement, for **155 rules in total**), how a working Rust code base checks them, and which parts remain pending at the time of writing. A small subset of rules (`A5`, `A7`, `D4`, `E15`, `E25`, and the ported-routine clauses of `G3`, `G4`, and `G7`) applies only when reimplementing an existing reference program and can be skipped in greenfield projects.
+
+### Four mechanisms hold the line
+
+1. **Automated checks**: Static, structural, git-history, supply-chain, or test-runner checks run on every commit (`commit`), every night (`nightly`), or on demand (`on-demand`).
+2. **Planted breaches (`F5`)**: As a general principle under rule `F5`, every automated check is expected to ship with a deliberate violation—a **planted breach**—in an isolated breach workspace (`breaches/**`), where an architecture meta-test verifies that the check selects real code (unless marked dormant) and fails on that breach alone. In the rule table, a Rust status of `built` means the table marks the check as built; however, the table names an explicit check runner for only 48 of the 119 `built` or `partial` rules (71 name none) and records no per-rule planted breach in the table itself. This guide asks adopters to require a planted breach for every automated check they build, and states this principle once here rather than repeating breach caveats on individual rules.
+3. **Calibrated model review (`V1`–`V8`)**: Where syntax and types cannot see enough (for example, whether domain names reflect the business domain or whether a test helper leaks the production formula), an isolated model reviewer grades the diff against binary rubric questions. **Rust status at the time of writing**: in the Rust workspace, the model-review runner runs in **advisory-only mode** because the rubric file-path scopes do not cover the Rust workspace. Zero rubric items match Rust diffs, so pure review rules (`B11`, `D8`, `G13`) and the model-review half of combined or partial rules do not block Rust commits.
+4. **Tightening-only principle files and expiring exceptions (`F4`, `I2`, `I5`)**: Principle files (the rule table, allow-list, reliability targets, and rubrics) may only add or tighten rules unless a commit cites a dated approval (`F4`). Scoped exceptions live in the `[allow]` table, where each entry gives a reason, names the decision record it relaxes (`I2`), and carries a dated approval; rule `I5` checks that stale or expired exceptions fail the gate, though `I5` is dormant in this workspace until the central allow-list reader is enabled.
+
+### How to read the group tables
+
+Each group in Section 4 starts with a summary table showing every rule's ID, title, Rust status, cadence, and its check and scope in Rust. Where the rule table names one of the code base's five check runners, the table refers to it in plain terms:
+
+- the **architecture check** (`rust/tests/architecture`), which inspects Cargo manifests, module graphs, and Rust syntax trees;
+- the **history check** (`tools/history`), which inspects git commits, principle-file diffs, decision records, committed public-surface files, and branch limits;
+- the **inventory check** (`tools/inventory`), which checks test wall-time budgets and shared behaviour-suite cases;
+- the **supply-chain check** (`tools/supply`), which checks package ages, security advisories, and reproducible build hashes; and
+- the **model-review runner** (`tools/review`), which grades diffs against binary rubrics in an isolated checkout.
+
+For the 71 `built` or `partial` rules where the rule table records no check runner, the last column summarises what the rule checks from its statement and the rule table metadata. The status values are:
+
+- **`built`**: the rule table marks the check as built. Whether a planted breach proves a given rule is not recorded per rule in the rule table (which names a check runner on 48 rules and lists no per-rule breach); this guide asks adopters to require one (`F5`).
+- **`built (partly report-only)`**: Marked `built` in the rule table, with a sub-clause (or, for `C8`, the check's flag) that reports or flags findings for review rather than failing the gate (`B4`, `B24`, `C8`, `G4`, `S2`).
+- **`built (Q; L advisory)`**: Marked `built` in the rule table with kind `Q+L`; the mechanical check (`Q`) is marked built, while the qualitative model-review half (`L`) is advisory-only on Rust paths (`A7`, `B12`, `E11`, `P11`).
+- **`built (dormant)`**: Marked `built` in the rule table, but dormant until the workspace crates or files it inspects exist (`B6`, `C7`, `D11`, `I5`, `M2`, `P12`). It does not fail commits while dormant.
+- **`built (unverified in sources)`**: Marked `built` in the rule table, but the rule table names neither a check runner nor any checking tool (`I1`, `I6`).
+- **`partial`**: Part of the rule is checked mechanically; the remaining parts wait for target code or rely on the advisory model reviewer (`E3` is also shown as `partial` because the rule table lists a pending part for it despite its `built` status). If its active check or replay is also waiting for target files, it is marked **`partial (dormant)`**.
+- **`review (advisory on Rust)`** / **`review (attended process)`**: Held by the model reviewer (advisory-only on Rust) or by an attended session (`I9`), with no automated check.
+- **`dormant` / `planned` / `report` / `process` *(no statement)***: Rows present in the rule table among the 32 rules that have no entry in the rule statements. None gates commits.
+
+---
+
+## 2. How to adopt these rules in an existing project
+
+Adopt rules in order of engineering payoff. Do not try to adopt all 155 rules on day one; wire the meta-test first so every rule you add proves itself. Section 4 orders the rule groups in this same sequence.
+
+1. **Pin the build and turn warnings into errors (`F1`, `H1`, `H2`, `H5`)**
+   Pin the compiler toolchain and every direct and transitive dependency in committed lockfiles. Enable warnings-as-errors and arithmetic overflow checks centrally. Run vulnerability audits in a nightly job so overnight advisories do not break unrelated daytime commits.
+2. **Add the self-test harness and governance lints (`F4`, `F5`, `I2`, `I3`, `I5`)**
+   Create a `breaches/` folder excluded from production builds. Require every new architecture check to ship with one small broken sample that makes that exact check fail (`F5`), enforce tightening-only edits on principle files (`F4`), and add a staleness check (`I5`, dormant in this workspace) for `[allow]` entries.
+3. **Lock the package dependency graph (`A1`, `A2`, `A6`, `A9`, `A10`)**
+   Classify every package into an ordered layer table (`Kernel`, `Contracts`, `Domain`, `Codec`, `Application`, `Infrastructure`, `Host`, `Test`). Fail the gate on unclassified packages, undeclared cross-context edges, cycles, infrastructure words in core names, or third-party libraries used outside their single wrapper package.
+4. **Make the core pure, total, deterministic, and simple (`C1`–`C6`, `C12`, `D1`–`D3`, `D12`, `G3`, `G4`)**
+   Ban I/O, clocks, ambient randomness, floating point, hash-ordered collections, mutation, nulls, panics, and partial operations (`unwrap`, unchecked indexing) in `Kernel` and `Domain`. Enforce function complexity ceilings (`<= 15` in core, `<= 5` in the shell) and size backstops (`80` / `500` / `600` lines).
+5. **Enforce honest, fast tests (`E1`, `E2`, `E5`, `E8`, `E12`, `E22`, `E23`)**
+   Route assertions through a counting assertion macro so assertion-free tests fail the gate and tautological assertions are flagged. Ban mocking libraries in favour of Nullable infrastructure wrappers. Enforce red-before-green (`E12`, whose parent-commit replay is dormant in the Rust workspace) and forbid test edits in refactoring commits.
+6. **Add bounded-context, decider, and persistence boundaries (`B1`, `B3`, `B4`, `M1`, `P2`, `P3`, `P15`)**
+   Keep the package graph equal to the declared context map, require domain aggregates to follow the pure `decide` / `evolve` decider pattern, keep serialisation in pure `Codec` packages using plain data-transfer objects, and verify committed public-surface and union-shape files in git history.
+7. **Add reliability budgets, scope fences, and calibrated model review (`R1`, `R5`, `S1`–`S5`, `V1`–`V8`)**
+   Track error budgets and `Prevents:` links on fix commits, keep branches under one day and 400 lines, and—once Rust rubric scopes and calibration cases are in place—run the isolated model reviewer (`V1`–`V8`, partial and advisory-only on the Rust workspace) on diffs that static analysis cannot fully judge.
+
+---
+
+## 3. Worked examples
+
+### Example 1: Package layers and vocabulary checks (`A1`, `A9`, `B22`)
+
+Under `A1`, every crate's `Cargo.toml` path below the Rust workspace root must match a row in the ordered `[[layer]]` table in the rule table. In this table, `Day` (`day/Cargo.toml`) is the single thin cross-context composition package that schedules work across context `Application` packages (`A14`), while `Import` and `ImportHost` isolate legacy-format conversion when reimplementing a reference program (`A7`). The first matching pattern wins, which is why `ImportHost` (`hosts/import/Cargo.toml`) is placed before `Host` (`hosts/{name}/Cargo.toml`) and `Breach` (`breaches/**`) is placed before `Test` (`tests/{name}/Cargo.toml`):
+
+```toml
+[[layer]]
+name = "Kernel"
+rust = ["kernel/Cargo.toml"]
+references = []
+packages = []
+
+[[layer]]
+name = "Contracts"
+rust = ["contexts/{context}/contracts/Cargo.toml"]
+references = ["Kernel", "Contracts:upstream"]
+packages = []
+
+[[layer]]
+name = "Domain"
+rust = ["contexts/{context}/domain/Cargo.toml"]
+references = ["Kernel", "Contracts:own", "Contracts:upstream"]
+packages = []
+
+[[layer]]
+name = "Codec"
+rust = ["contexts/{context}/codec/Cargo.toml"]
+references = ["Kernel", "Contracts:own", "Domain:own"]
+packages = []
+
+[[layer]]
+name = "Application"
+rust = ["contexts/{context}/application/Cargo.toml"]
+references = ["Kernel", "Infrastructure", "Domain:own", "Codec:own", "Contracts:own", "Contracts:upstream"]
+packages = []
+
+[[layer]]
+name = "Day"
+rust = ["day/Cargo.toml"]
+references = ["Application:any"]
+packages = []
+
+[[layer]]
+name = "Infrastructure"
+rust = ["infrastructure/{name}/Cargo.toml"]
+references = ["Kernel"]
+packages = []
+
+[[layer]]
+name = "Import"
+rust = ["import/Cargo.toml"]
+references = ["Kernel", "Contracts:any"]
+packages = []
+
+[[layer]]
+name = "ImportHost"
+rust = ["hosts/import/Cargo.toml"]
+references = ["Kernel", "Contracts:any", "Import", "Day"]
+packages = []
+
+[[layer]]
+name = "Host"
+rust = ["hosts/{name}/Cargo.toml"]
+references = ["Application:any", "Day", "Infrastructure"]
+packages = []
+
+[[layer]]
+name = "Breach"
+rust = ["breaches/**"]
+references = []
+packages = []
+
+[[layer]]
+name = "Test"
+rust = ["tests/{name}/Cargo.toml"]
+references = ["*"]
+packages = ["*"]
+```
+
+Rules `A9` and `B22` then check names against committed word lists in the rule table, each with its own scope:
+
+- **`A9`** checks every **type, module, and namespace** in `Domain`, `Contracts`, and `Application` **ports** against `[words].infrastructure` and `[words].screens`.
+- **`B22`** checks every **module, file, type, and top-level function** in `Domain`, `Contracts`, and `Application` to ensure it is not named with, and does not end with, a word from `[names].vague` (unless the whole name is a glossary term).
+
+```toml
+[words]
+infrastructure = ["Sql", "Json", "Http", "Socket", "File", "Db", "Clock", "Thread", "Cache", "Queue"]
+screens = ["Button", "Click", "Screen", "Page"]
+
+[names]
+vague = ["Entities", "ValueObjects", "Services", "Factories", "Repositories", "Helpers",
+         "Utils", "Common", "Shared", "Misc", "Base", "Impl", "Processor", "Handler", "Data", "Info", "Manager"]
+```
+
+Under these lists, a domain type named `SqlOrder` fails `A9` (contains `Sql`), while `OrderManager` fails `B22` (ends in `Manager`) and `OrderRepositories` fails `B22` (ends in `Repositories`).
+
+### Example 2: Constrained values and aggregate state transitions (`C3`, `B3`, `B5`, `B7`, `C12`, `G7`, `G11`, `G12`)
+
+Rule `C3` requires simple domain values in `Kernel`, `Domain`, and `Contracts` to hide their representation, expose `create` and `value`, and forbid public constructors. Rule `B3` requires each aggregate in `Domain` to be a pure decider: a total `evolve(state, event) -> State` over the context's own types, an `is_terminal` check for aggregates that can end, and a `decide` function taking the code base's declared leading parameters (`[decider].leading`), a command, and the state to return either a list of events or a refusal. Every public item carries a documentation comment (`G12`), every function takes at most 4 parameters (`G11`), domain constants live in a `rules` module (`G7`), other aggregates are referenced only by typed ID (`B5`), events are past-tense facts carrying the aggregate ID (`B7`), and pattern matches over the code base's own unions use no `_` wildcard arm (`C12`):
+
+```rust
+/// Named domain constants for library loan rules (G7).
+pub mod rules {
+    /// Maximum allowed duration of a single library loan in days.
+    pub const MAX_LOAN_DAYS: u16 = 30;
+}
+
+/// Validation failure when constructing a [`LoanDays`] value (C1, C3, C11).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LoanDaysError {
+    /// The requested loan duration was zero days.
+    BelowMinimum,
+    /// The requested loan duration exceeded [`rules::MAX_LOAN_DAYS`].
+    ExceedsMaximum,
+}
+
+/// Constrained day count for a library loan, bounded to `1..=MAX_LOAN_DAYS` (C3).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct LoanDays(u16);
+
+impl LoanDays {
+    /// Validates a raw day count and returns a constrained [`LoanDays`] or a [`LoanDaysError`].
+    pub fn create(raw: u16) -> Result<Self, LoanDaysError> {
+        if raw < 1 {
+            Err(LoanDaysError::BelowMinimum)
+        } else if raw > rules::MAX_LOAN_DAYS {
+            Err(LoanDaysError::ExceedsMaximum)
+        } else {
+            Ok(Self(raw))
+        }
+    }
+
+    /// Returns the underlying validated day count.
+    pub fn value(self) -> u16 {
+        self.0
+    }
+}
+
+/// Past-tense domain events for a library loan aggregate (B3, B5, B7).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LoanEvent {
+    /// Recorded when a member checks out a book.
+    LoanOpened {
+        /// Identifier of the loan aggregate.
+        loan_id: LoanId,
+        /// Identifier of the borrowed book aggregate.
+        book_id: BookId,
+        /// Identifier of the borrowing member aggregate.
+        member_id: MemberId,
+        /// Approved duration of the loan.
+        duration: LoanDays,
+        /// Domain date on which the loan opened.
+        opened_on: Date,
+    },
+    /// Recorded when an active loan is extended.
+    LoanRenewed {
+        /// Identifier of the loan aggregate.
+        loan_id: LoanId,
+        /// Updated duration of the loan.
+        duration: LoanDays,
+        /// Domain date on which the renewal took effect.
+        renewed_on: Date,
+    },
+    /// Recorded when the borrowed book is returned.
+    LoanReturned {
+        /// Identifier of the loan aggregate.
+        loan_id: LoanId,
+        /// Domain date on which the book was returned.
+        returned_on: Date,
+    },
+}
+
+/// Lifecycle state of a library loan aggregate as a sum type (B3, B5, C8).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LoanState {
+    /// The book is checked out to a member.
+    Active {
+        /// Identifier of the loan aggregate.
+        loan_id: LoanId,
+        /// Identifier of the borrowed book aggregate.
+        book_id: BookId,
+        /// Identifier of the borrowing member aggregate.
+        member_id: MemberId,
+        /// Approved duration of the loan.
+        duration: LoanDays,
+        /// Domain date of the most recent checkout or renewal.
+        since: Date,
+    },
+    /// The book has been returned and the loan lifecycle has ended.
+    Returned {
+        /// Identifier of the loan aggregate.
+        loan_id: LoanId,
+        /// Domain date on which the loan closed.
+        returned_on: Date,
+    },
+}
+
+/// Folds a [`LoanEvent`] into the current [`LoanState`] with no wildcard arms (B3, C6, C12).
+pub fn evolve(state: LoanState, event: LoanEvent) -> LoanState {
+    match (state, event) {
+        (
+            LoanState::Active { .. } | LoanState::Returned { .. },
+            LoanEvent::LoanOpened { loan_id, book_id, member_id, duration, opened_on },
+        ) => LoanState::Active { loan_id, book_id, member_id, duration, since: opened_on },
+        (
+            LoanState::Active { book_id, member_id, .. },
+            LoanEvent::LoanRenewed { loan_id, duration, renewed_on },
+        ) => LoanState::Active { loan_id, book_id, member_id, duration, since: renewed_on },
+        (
+            LoanState::Returned { loan_id, returned_on },
+            LoanEvent::LoanRenewed { .. },
+        ) => LoanState::Returned { loan_id, returned_on },
+        (
+            LoanState::Active { .. } | LoanState::Returned { .. },
+            LoanEvent::LoanReturned { loan_id, returned_on },
+        ) => LoanState::Returned { loan_id, returned_on },
+    }
+}
+
+/// Returns `true` once the loan has reached its terminal [`LoanState::Returned`] state (B3, C12).
+pub fn is_terminal(state: &LoanState) -> bool {
+    match state {
+        LoanState::Active { .. } => false,
+        LoanState::Returned { .. } => true,
+    }
+}
+
+/// Commands a member or librarian can send to an existing loan (B3).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LoanCommand {
+    /// Extend the active loan to a new approved duration.
+    Renew {
+        /// Requested new duration of the loan.
+        duration: LoanDays,
+    },
+    /// Record that the borrowed book has come back.
+    Return,
+}
+
+/// Why [`decide`] turned a command down: a refusal, never a silent empty success (B3).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LoanRefusal {
+    /// The loan has already ended, and an ended aggregate refuses every command.
+    LoanEnded,
+}
+
+/// Decides what a command does to a loan, with the date as its one leading parameter (B3, C12, G11).
+///
+/// Every (command, state) pair is listed, with no `_` arm, so a new command or state
+/// cannot be forgotten. The business decisions live here and nowhere else.
+pub fn decide(
+    today: Date,
+    command: LoanCommand,
+    state: LoanState,
+) -> Result<List<LoanEvent>, LoanRefusal> {
+    match (command, state) {
+        (LoanCommand::Renew { duration }, LoanState::Active { loan_id, .. }) => {
+            Ok(List::of(LoanEvent::LoanRenewed { loan_id, duration, renewed_on: today }))
+        }
+        (LoanCommand::Return, LoanState::Active { loan_id, .. }) => {
+            Ok(List::of(LoanEvent::LoanReturned { loan_id, returned_on: today }))
+        }
+        (LoanCommand::Renew { .. }, LoanState::Returned { .. })
+        | (LoanCommand::Return, LoanState::Returned { .. }) => Err(LoanRefusal::LoanEnded),
+    }
+}
+```
+
+`List` and `List::of` stand for the code base's immutable list type (rule `C2` forbids arrays and other mutable collections in public types); like `Date`, `LoanId`, `BookId` and `MemberId`, they are assumed from the kernel, and every id type and `Date` must be `Copy`. Here each decision yields exactly one event. Opening the loan (the first `LoanOpened`) is a separate create step that is not shown. A returned loan refuses `Renew` and `Return` with `LoanEnded`, which is `B3`'s rule that an ended aggregate refuses every command.
+
+### Example 3: Nullable infrastructure wrappers (`E1`, `E5`)
+
+Rule `E1` bans mocking libraries and external stub types, and rule `E5` requires every `Infrastructure` wrapper to be Nullable. Each wrapper keeps its representation private, embeds its stub inside its own file, and exposes both `create` and `create_null` with no I/O on construction, recording writes as typed behaviour values and failing loudly when configured responses run out:
+
+```rust
+use std::collections::VecDeque;
+
+/// Recorded output behaviour for a dispatched notice (E5).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum NoticeSent {
+    /// A notice was dispatched to `recipient` with the given text resource `key`.
+    Dispatched { recipient: RecipientId, key: TextKey },
+}
+
+/// Infrastructure wrapper with an embedded Nullable backend (E1, E5).
+pub struct NoticeWrapper {
+    inner: Backend,
+    recorded: Vec<NoticeSent>,
+}
+
+enum Backend {
+    Real { endpoint: EndpointConfig },
+    Null { canned: VecDeque<Result<(), NoticeError>> },
+}
+
+impl NoticeWrapper {
+    /// Real factory: stores configuration and connects only on first use (no I/O here).
+    pub fn create(endpoint: EndpointConfig) -> Self {
+        Self { inner: Backend::Real { endpoint }, recorded: Vec::new() }
+    }
+
+    /// Nullable factory: optional non-third-party responses, no I/O.
+    pub fn create_null(responses: Option<Vec<Result<(), NoticeError>>>) -> Self {
+        let canned = VecDeque::from(responses.unwrap_or_else(|| vec![Ok(())]));
+        Self { inner: Backend::Null { canned }, recorded: Vec::new() }
+    }
+
+    /// Sends a notice or replays the next configured Nullable response.
+    pub fn send(&mut self, recipient: RecipientId, key: TextKey) -> Result<(), NoticeError> {
+        match &mut self.inner {
+            Backend::Real { endpoint } => endpoint.send_wire(recipient, key)?,
+            Backend::Null { canned } => {
+                // E5: a configured response list that runs out fails loudly.
+                canned.pop_front().expect("NoticeWrapper::create_null responses exhausted")?;
+            }
+        }
+        self.recorded.push(NoticeSent::Dispatched { recipient, key });
+        Ok(())
+    }
+
+    /// Returns the recorded output behaviours for scenario assertions (E5, E9).
+    pub fn outputs(&self) -> &[NoticeSent] {
+        &self.recorded
+    }
+}
+```
+
+---
+
+## 4. The rules by group
+
+The 14 groups below are ordered in the adoption sequence from Section 2. **The rule table contains 155 rules**: **123 have a written statement** and **32 appear only in the rule table**.
+
+| Group | Theme | Rules with a statement (123) | Rules in the rule table without a statement (32) |
+| :--- | :--- | :--- | :--- |
+| **F** | [Compiler hygiene and self-proving rules](#group-f-compiler-hygiene-and-self-proving-rules) | F1–F6 (6) | — (0) |
+| **H** | [Supply chain and reproducible builds](#group-h-supply-chain-and-reproducible-builds) | H1, H2, H4–H6 (5) | H9 (1) |
+| **I** | [Governance, decision records, and vitality](#group-i-governance-decision-records-and-vitality) | I1–I3, I5, I6, I9 (6) | — (0) |
+| **A** | [Architecture, layers, and dependencies](#group-a-architecture-layers-and-dependencies) | A1, A2, A5–A10, A14, A17 (10) | A11, A13 (2) |
+| **C** | [Functional core, types, and errors](#group-c-functional-core-types-and-errors) | C1–C15 (15) | — (0) |
+| **D** | [Determinism and exactness](#group-d-determinism-and-exactness) | D1–D5, D8, D11–D13 (9) | D9, D10 (2) |
+| **G** | [Simplicity and module design](#group-g-simplicity-and-module-design) | G3, G4, G7, G11–G13 (6) | G2 (1) |
+| **E** | [Testing and verification](#group-e-testing-and-verification) | E1–E3, E5, E8–E14, E16, E17, E21–E23, E25, E26, E30, E31, E33, E36 (22) | E15, E32, E34, E35 (4) |
+| **B** | [Bounded contexts, domain model, and glossary](#group-b-bounded-contexts-domain-model-and-glossary) | B1, B3–B9, B11–B15, B17, B18, B22–B24, B26, B27 (20) | B19–B21, B25 (4) |
+| **M** | [Messaging and event envelopes](#group-m-messaging-and-event-envelopes) | M1, M2 (2) | M3–M7 (5) |
+| **P** | [Persistence, codecs, and versioning](#group-p-persistence-codecs-and-versioning) | P2, P3, P6, P11, P12, P15 (6) | P4, P5, P7–P10, P13 (7) |
+| **R** | [Reliability, error budgets, and postmortems](#group-r-reliability-error-budgets-and-postmortems) | R1, R5 (2) | R2–R4, R6, R8 (5) |
+| **S** | [Scope, branches, spikes, and exemplars](#group-s-scope-branches-spikes-and-exemplars) | S1–S5, S8 (6) | S7 (1) |
+| **V** | [Blind model-reviewer gate and calibration](#group-v-blind-model-reviewer-gate-and-calibration) | V1–V8 (8) | — (0) |
+
+---
+
+### Group F: Compiler hygiene and self-proving rules
+
+Group F turns compiler warnings, unresolved `TODO` comments, and unapproved edits to principle files into gate failures, and requires every automated rule to prove itself against a planted breach (`F5`).
+
+| Rule | Title | Rust status | Cadence | Check and scope in Rust |
+| :--- | :--- | :--- | :--- | :--- |
+| **F1** | Warnings are errors | `built` | `commit` | Enforces warnings-as-errors, pinned formatter and linter configs, overflow checks, and narrowly scoped `[allow]` entries. |
+| **F2** | No third-party proprietary material | `partial` | `commit` | History check scans committed files; model review for quoted proprietary words is pending (advisory on Rust). |
+| **F3** | TODOs and cited ids must resolve | `built` | `commit` | Architecture check verifies every `TODO` backlog ID and every decision or rule ID cited in comments. |
+| **F4** | Principle files only tighten | `built` | `commit` | History check blocks loosening edits to principle files without dated approval and requires decision IDs on structural file edits. |
+| **F5** | Every rule proves it works | `built` | `commit` | The architecture meta-test verifies that checks select real code unless dormant and fire on their `breaches/**` sample alone. |
+| **F6** | No commented-out code or debug leftovers | `partial (history dormant)` | `commit` | Static checks catch commented-out code and debug leftovers; history checks for flag expiry, dead code, and test-only items are dormant. |
+
+- **F1 — Warnings are errors**: Compiler warnings are errors, with a fixed opt-in list of extra warnings and lints and a pinned language version, all set once centrally; no package suppresses warnings, and a local suppression has an `[allow]` entry and is scoped as narrowly as possible. There is one code formatter with a pinned configuration, a linter whose pinned configuration names every rule kept, and arithmetic overflow checking is on.
+- **F2 — No third-party proprietary material**: No third-party proprietary material (quoted text, data files, or pictures from a reference product) is committed; an automated check enforces this. *Pending in Rust*: model review for quoted proprietary words in strings or comments (advisory-only on Rust).
+- **F3 — TODOs and cited ids must resolve**: Every `TODO` carries a backlog item ID, and every decision or rule ID named in a code comment exists.
+- **F4 — Principle files only tighten**: The principle files (the rule table, the allow list, the reliability targets, and the rubrics) change only by adding or tightening unless the commit cites an explicit dated approval. Review cases, golden files, the simulation corpus, and committed migrations are append-only, and the structural facts (the context map, the glossary, the policy table) change only through reviewed commits that cite a decision record.
+- **F5 — Every rule proves it works**: Every rule in the rule table has a check. Every automated rule has a breach example that fires exactly that rule, a selection that is not empty on the real code unless the rule is marked dormant with the backlog item in which its target appears, and a failure message naming the rule ID, the offending edge or member, the allowed alternative, and its decision record.
+- **F6 — No commented-out code or debug leftovers**: There is no commented-out code or debug leftover, no always-off flag without an expiry in the flag list, and code a change makes dead is deleted in the same commit; a public member that only tests use is reported. *Pending in Rust*: history checks for flag expiry in the flag list, deleting dead code in the same commit, and reporting public members used only by tests are dormant until the target files land.
+
+---
+
+### Group H: Supply chain and reproducible builds
+
+Group H pins the compiler toolchain and package lockfiles on every commit, enforces a 14-day minimum age on newly adopted versions, and runs vulnerability and reproducible-build checks every night.
+
+| Rule | Title | Rust status | Cadence | Check and scope in Rust |
+| :--- | :--- | :--- | :--- | :--- |
+| **H1** | The toolchain is pinned exactly | `built` | `commit` | Verifies the toolchain version is pinned exactly and never floats. |
+| **H2** | Packages and tools pinned exactly | `built` | `commit` | Verifies exact central dependency pins, committed lockfiles, and locked-mode restore. |
+| **H4** | A minimum age for new versions | `partial` | `commit` | Supply-chain check verifies lockfile and version-table publish dates (`>= 14` days); the rule table marks the check partial and records no Rust-specific pending part. |
+| **H5** | A nightly package audit | `built` | `nightly` | Supply-chain check audits direct and transitive dependencies and fails on high or critical advisories. |
+| **H6** | Builds are deterministic and reproducible | `built` | `nightly` | Supply-chain check runs two clean release builds at different paths and compares SHA-256 hashes. |
+| **H9** | Releases | `planned (no statement)` | `on-demand` | Planned release-time supply-chain check; no prose statement. |
+
+- **H1 — The toolchain is pinned exactly**: The language toolchain is pinned to an exact version, never a floating channel or automatic upgrade, and is upgraded only deliberately under the package age rule (`H4`).
+- **H2 — Packages and tools pinned exactly**: Every dependency, direct and transitive, is pinned to an exact version, managed centrally with no per-package overrides and no ranges or wildcards; dependency-resolution warnings are errors; lock files are committed and the gate restores in locked mode; and build tools and linters are pinned to the same toolchain version.
+- **H4 — A minimum age for new versions**: Every pinned version was published at least 14 days before the commit that adopts it, and each new package is named in its commit message with its licence and its reason: what it makes deployable, testable, or faster, and that module boundaries stay intact. *Partly built*: the rule table marks the check partial and records no Rust-specific pending part.
+- **H5 — A nightly package audit**: The package audit covers all packages, transitive ones included, and high and critical advisories are errors in a separate nightly audit run, so that a new advisory does not break unrelated commits.
+- **H6 — Builds are deterministic and reproducible**: The gate builds in continuous-integration mode, and in the nightly run two clean builds from a fresh clone, with the network off after restore, produce identical SHA-256 hashes for every build artefact.
+
+---
+
+### Group I: Governance, decision records, and vitality
+
+Group I links the rule table and structural commits to decision records, checks for stale allow entries, and schedules an attended monthly vitality review.
+
+| Rule | Title | Rust status | Cadence | Check and scope in Rust |
+| :--- | :--- | :--- | :--- | :--- |
+| **I1** | Every rule states what it serves | `built (unverified in sources)` | `commit` | Marked `built` in the rule table, but the table names neither a check runner nor any checking tool. |
+| **I2** | Decision records are linted | `built` | `commit` | History check lints decision record sections, `Compliance` rule IDs, `revisit when` triggers, and symmetric supersede links. |
+| **I3** | Structural commits cite a decision record | `built` | `commit` | History check verifies that commits touching the context map, dependencies, `Contracts` surfaces, or the rule table cite a decision record. |
+| **I5** | Stale allow entries fail | `built (dormant)` | `commit` | History check is written, but dormant until the central allow-list reader is enabled; does not fail commits while dormant. |
+| **I6** | Checks are not fooled by inlining | `built (unverified in sources)` | `commit` | Holds by construction in Rust (syntax-tree and linter checks inspect source before inlining); no check runner or checking tool in the rule table. |
+| **I9** | A monthly vitality review | `review (attended process)` | `on-demand` | Attended monthly review and scratch self-test drill; no automated check. |
+
+- **I1 — Every rule states what it serves**: Every row of the rule table names the quality characteristics it serves, its cadence (`commit`, `nightly`, `on-demand`), its scope (`atomic` or `holistic`), and its decision record or principle family. *Rust status*: marked `built` in the rule table, but unverified in the sources (it names neither a check runner nor a checking tool).
+- **I2 — Decision records are linted**: Decision records have the required sections, including `Compliance` and a `revisit when` trigger; `Compliance` names existing rule IDs or a manual check with a reason and review date; a superseded record hosts no active rule; supersede links are symmetric; and each allow entry names the record it relaxes.
+- **I3 — Structural commits cite a decision record**: A commit that changes the context map, any package dependency, the public surface of a `Contracts` package, or the rule table cites a decision record ID in its message.
+- **I5 — Stale allow entries fail**: An allow entry that no longer excuses any violation fails the gate, and an optional review-by date fails once it lapses. *Dormant in Rust*: the history check is dormant until the central allow-list reader lands.
+- **I6 — Checks are not fooled by inlining**: A check that inspects compiled output runs on builds with cross-module inlining disabled and is written at type level, or else inspects source before any inlining happens. Each such check's breach example includes a small inlinable callee, and a meta-test fails if this protection is lost. *Rust status*: the rule table notes that this rule holds by construction in Rust because Clippy and syntax-tree checks inspect source before inlining, and names no check runner or checking tool for it.
+- **I9 — A monthly vitality review**: A dated vitality review takes place monthly in an attended session: the rules, allow entries, decision-record review dates, and health trends are read; obsolete rules are proposed for removal; the gate's self-test plants a forbidden dependency in a scratch copy and expects a failure; and a commit 30 days old is built. *Rust status*: attended process (`review`), with no automated check.
+
+---
+
+### Group A: Architecture, layers, and dependencies
+
+Group A enforces the workspace's hexagonal and bounded-context package structure, bans dependency cycles and technology terms in core names, restricts each third-party library to a single wrapper crate, and keeps the application shell thin. Rules `A5` and `A7` apply when reimplementing a reference program.
+
+| Rule | Title | Rust status | Cadence | Check and scope in Rust |
+| :--- | :--- | :--- | :--- | :--- |
+| **A1** | The layer table governs every dependency | `built` | `commit` | Matches every `Cargo.toml` path and dependency edge against `[[layer]]` in the rule table. |
+| **A2** | Contexts see each other only through contracts | `built` | `commit` | Checks `Domain` crate dependencies and imports so contexts share only `Kernel` and upstream `Contracts`. |
+| **A5** | Production code never depends on the reference program | `built` | `commit` | Verifies no production crate depends on paths outside the workspace or on the reference program. |
+| **A6** | No dependency cycles | `built` | `commit` | Checks that there are no dependency cycles between packages. |
+| **A7** | Only the import layer knows the legacy format | `built (Q; L advisory)` | `commit` | Architecture check scans names and hex constants outside `Import`; model-review (`L`) half is advisory on Rust. |
+| **A8** | Codecs are pure and the store keeps envelopes | `built` | `commit` | Verifies `Codec` purity and consumers and checks that `Infrastructure` public types expose only opaque envelopes. |
+| **A9** | Names say purpose, not technology | `built` | `commit` | Scans `Domain`, `Contracts`, and `Application` port names against `[words]` and checks port error unions. |
+| **A10** | One wrapper per third-party package | `built` | `commit` | Checks `Cargo.toml` dependencies against `[packages]` and `[banned].containers`. |
+| **A11** | Storage is partitioned like the contexts | `dormant (no statement)` | `commit` | Dormant check on `Infrastructure`; no prose statement. |
+| **A13** | Plug-ins are independent | `dormant (no statement)` | `commit` | Dormant until the first plug-in exists; no prose statement. |
+| **A14** | The application layer is partitioned by context | `built` | `commit` | Verifies one `Application` crate per context with no cross-context `Application` or `Domain` edges, plus one cross-context composition crate (`Day`). |
+| **A17** | The shell stays humble | `partial` | `commit` | Architecture check enforces complexity (`<= 5`) and bans domain branching in `Application`, `Day`, and `Hosts`; invariant check is advisory (`L`). |
+
+- **A1 — The layer table governs every dependency**: Every package in the workspace has a row in the layer table (layer, context, role), and its dependencies on other packages are exactly those its row allows: `Kernel` depends on nothing but the language's core library; `Contracts` on `Kernel` and upstream `Contracts`; a `Codec` on `Kernel` and its own context's `Contracts` and `Domain`; `Infrastructure` on `Kernel` only; each context's `Application` on `Kernel`, `Infrastructure`, and its own context's `Domain`, `Codec`, and `Contracts` plus upstream `Contracts`; `Hosts` on `Application` and `Infrastructure`. Nothing depends on a `Host` or a `Test` package, and an unclassified package fails the check.
+- **A2 — Contexts see each other only through contracts**: A context sees another context only through that context's published `Contracts`, so each keeps its own model and language. A context's `Domain` depends only on `Kernel`, its own `Contracts`, and the `Contracts` of contexts upstream of it, never on another context's `Domain`.
+- **A5 — Production code never depends on the reference program**: No production package depends on code outside the workspace, and in particular not on the reference program the system is checked against; only the dedicated exact-comparison test package may depend on that reference.
+- **A6 — No dependency cycles**: There are no dependency cycles between packages. Where the language allows cycles inside one package (between namespaces, or mutually recursive modules, types, or functions), they need an `[allow]` entry, so that declaration order is dependency order.
+- **A7 — Only the import layer knows the legacy format**: Only the `Import` layer knows a legacy external format: its file layouts, offsets, and addresses. Elsewhere no declared name is a decompiler's default name or speaks of pointers, no integer is named as an offset or address, and the domain holds no address-shaped constants such as long hexadecimal literals. *Advisory in Rust*: the `L` model-reviewer component of this `Q+L` rule is advisory-only on Rust paths.
+- **A8 — Codecs are pure and the store keeps envelopes**: A `Codec` does no I/O and only `Application` and `Test` packages depend on it. `Infrastructure`'s public types name no `Domain`, `Contracts`, `Codec`, or third-party type; the store keeps opaque envelopes of kind, version, and payload.
+- **A9 — Names say purpose, not technology**: No type, module, or namespace in `Domain`, `Contracts`, or `Application` ports contains a word from the listed infrastructure terms (`Sql`, `Json`, `Http`, `Socket`, `File`, `Db`, `Clock`, `Thread`, `Cache`, `Queue`) or user-interface terms (`Button`, `Click`, `Screen`, `Page`). A port's error is a closed union owned by the `Application` layer that names no storage type.
+- **A10 — One wrapper per third-party package**: Each third-party package is used by at most one production package, its `Infrastructure` wrapper, apart from the core library and a short allow-list; every package's third-party dependencies are named in its allow-list (`[packages]`), and networking, storage, and serialisation packages appear only in their wrapper and the `Hosts`. There is no dependency-injection container (`[banned].containers`): the `Hosts` wire the system by passing functions.
+- **A14 — The application layer is partitioned by context**: There is one `Application` package per context, which never depends on another context's `Application` or `Domain`, plus at most one thin composition package (`Day`, the single cross-context orchestration crate) that schedules work across the context applications and is the only application package spanning contexts. The check reads the package dependency graph, which compiler optimisation cannot hide.
+- **A17 — The shell stays humble**: Every function in the `Application` packages, the composition package (`Day`), and the `Hosts` has a complexity of at most 5 (cyclomatic, or the stricter cognitive measure where that is what the tooling offers), branches on no domain type or case, and checks no aggregate invariant, which belongs with its aggregate. A function that needs more is split into a domain decision, tested by its output, and a thin workflow. *Pending in Rust*: checking that no aggregate invariant is evaluated in the shell relies on model review (`L`, advisory-only on Rust).
+
+---
+
+### Group C: Functional core, types, and errors
+
+Group C keeps `Kernel`, `Domain`, and `Contracts` functional: errors are values of four typed kinds, state is immutable and null-free, primitives are wrapped in constrained types, functions are total, lifecycles are sum types, and panic handlers live only at the edges.
+
+| Rule | Title | Rust status | Cadence | Check and scope in Rust |
+| :--- | :--- | :--- | :--- | :--- |
+| **C1** | Errors are values | `built` | `commit` | Bans panics and throws in `Kernel`, `Domain`, and `Application` and checks typed error and defect unions. |
+| **C2** | No mutation in the core | `built` | `commit` | Bans mutable bindings, mutable fields, interior mutability, and mutable collections in `Kernel` and `Domain`. |
+| **C3** | Simple values are constrained types | `partial` | `commit` | Checks private fields, `create`, `value`, and `[allow].struct_constrained`; boundary property check per type is pending. |
+| **C4** | No primitive obsession | `partial` | `commit` | Rejects raw primitives in `Domain` and `Contracts` public signatures and fields; glossary `carries:` and counts/dates checks are pending. |
+| **C5** | No null in the core | `built` | `commit` | Bans null literals, null checks, nullable pointers, and default-initialised values in `Kernel` and `Domain`. |
+| **C6** | Functions are total | `partial` | `commit` | Architecture check bans listed partial methods, non-exhaustive matches, non-constant divisors, and unchecked overflow; unlisted partial calls rely on review (`L`). |
+| **C7** | Workflows are pipelines | `built (dormant)` | `commit` | Signature check on `Application` workflows is written, but dormant until the application workflows exist. |
+| **C8** | States are types | `built (partly report-only)` | `commit` | Reports for review (without failing the gate) any `Domain` or `Contracts` record with `is`/`has`/`can` boolean fields, 2+ optional fields, or optional collections. |
+| **C9** | No squashed errors | `partial` | `commit` | Architecture check makes discarding a `Result` an error; turning a refusal or wrapper error into a default value is a review finding (`L`). |
+| **C10** | Each core unit declares its public surface explicitly | `built` | `commit` | Enforces explicit exports, no wildcard re-exports, abstract invariant-carrying types, and decision citations on `Contracts` changes. |
+| **C11** | Typed errors of four kinds | `built` | `commit` | Rejects string or exception errors and nested `Result<Result<...>>` in public signatures and enforces the four error kinds. |
+| **C12** | No wildcard cases over the system's own unions | `built` | `commit` | Architecture check bans `_` or catch-all bindings over workspace enums in `Kernel`, `Domain`, and `Application` unless in `[allow].wildcard`. |
+| **C13** | Dependencies are rejected, not injected | `built` | `commit` | Rejects function parameters returning async results or `()` and public functions returning `()` in `Kernel` and `Domain`. |
+| **C14** | Exception handlers only at the edges | `partial` | `commit` | Restricts `catch_unwind` to `Infrastructure`, `Hosts`, and `Codec`; full error-coverage and logged-then-defaulted payloads rely on review (`L`). |
+| **C15** | No integer-valued enumerations in the domain | `built` | `commit` | Rejects numeric enum discriminants and integer `#[repr(...)]` on enums in `Domain` and `Contracts`. |
+
+- **C1 — Errors are values**: `Kernel`, `Domain`, and `Application` never throw, raise, or panic. Each context has a typed error union, and a broken invariant or unsupported case the core detects is returned as a typed defect case without free text, which `Application` carries to the `Host`, which stops with a bug report and the journal slice (the recent sequence of recorded events leading up to the failure).
+- **C2 — No mutation in the core**: `Kernel` and `Domain` use no mutation: no mutable bindings or fields, no reference cells, and no arrays or other mutable collections in public types. They use immutable lists, maps, sets, or other immutable collections.
+- **C3 — Simple values are constrained types**: Simple domain types in `Kernel`, `Domain`, and `Contracts` have a hidden representation, a `create` from the raw value to either the type or a typed error, a `value` accessor, and no public constructor. Each has a boundary property showing that `create` accepts exactly its legal values, and a constrained type with a default zero value needs an `[allow].struct_constrained` entry stating why that value is legal. *Pending in Rust*: verifying that each constrained type has its boundary property test (waits for the domain context crates).
+- **C4 — No primitive obsession**: Public functions and record fields in `Domain` and `Contracts` use domain types, not raw integers, strings, decimals, or booleans (an alias of a primitive counts as the primitive; `[primitives].allowed` is empty), and each constrained type's glossary entry names the invariant, unit, or identity it carries (`carries:`). Counts are not storage (no fixed-size allocations or capacity constants; limits are rules), and dates use `Kernel`'s date type, never integer arithmetic or packed bytes. *Pending in Rust*: glossary `carries:` annotations and the counts and dates checks (wait for glossary edits, domain context crates, and advisory model review).
+- **C5 — No null in the core**: `Kernel` and `Domain` use no null: no null literals, null checks, types that admit null, or default-initialised values.
+- **C6 — Functions are total**: Functions in `Kernel` and `Domain` are total: no partial operations such as taking the head of a list, unwrapping an optional value, find-or-throw lookups, or unchecked indexing, and an incomplete set of pattern cases is a compile error. Division is permitted only by non-zero named constants from the context's rules module, and arithmetic overflow is checked rather than silently wrapping. *Pending in Rust*: known partial standard-library methods are matched by name from a static list; unlisted partial operations rely on model review (`L`, advisory-only on Rust).
+- **C7 — Workflows are pipelines**: Each `Application` workflow is a pipeline from a command to an asynchronous result of either events or a workflow error: impure load, one pure decision over values, impure store. A decision that needs data read in the middle becomes several such sandwiches, the core never receives an effectful function, and the pipeline composes modules that own their knowledge rather than one module per step. *Dormant in Rust*: the check is built but dormant until the `Application` workflow modules exist.
+- **C8 — States are types**: A lifecycle is a union of states (offered, signed, expired), not flags or optional fields that must agree. A check **reports for review** any `Domain` or `Contracts` record with an `is`, `has`, or `can` boolean field, two or more optional fields, or an optional collection (unless excused in `[allow].states_as_flags`). *Partly report-only*: the automated check flags matching records for review rather than failing the gate outright.
+- **C9 — No squashed errors**: Discarding a result value is a compile-time error, and turning a refusal or a wrapper error into a default value **is a review finding**. *Pending in Rust*: turning a refusal or wrapper error into a default value is assigned to model review (`L`, advisory-only on Rust); `drop` and `forget` are permitted in `Infrastructure` and `Hosts` where real resource guards live.
+- **C10 — Each core unit declares its public surface explicitly**: Every `Kernel`, `Domain`, and `Contracts` unit states explicitly what it publishes: through a separate interface declaration where the language has one, otherwise through private-by-default items and an explicit export list with no wholesale re-exports of modules. A type that carries an invariant is abstract, and a change to a `Contracts` interface cites a decision record.
+- **C11 — Typed errors of four kinds**: No public signature in `Kernel`, `Domain`, `Contracts`, or `Application` uses a string or exception as its error type or nests one result inside another. Errors come in four kinds: a domain refusal is `decide`'s error; an infrastructure failure is a wrapper error carried in the workflow's error union; undecodable input is the `Codec`'s decode error, quarantined at the edge and never reaching the domain; and a defect is the typed defect case.
+- **C12 — No wildcard cases over the system's own unions**: In `Kernel`, `Domain`, and `Application`, no wildcard or catch-all pattern covers the cases of a union defined in the code base, except by `[allow].wildcard` entry.
+- **C13 — Dependencies are rejected, not injected**: In `Kernel` and `Domain`, no parameter has a function type returning an asynchronous result or nothing (unit or void), and no public function returns nothing.
+- **C14 — Exception handlers only at the edges**: Exception or panic handlers exist only in `Infrastructure`, `Hosts`, and `Codec`; each names the failures it expects, apart from the host's single top-level handler. A wrapper translates every failure into its own closed error union at its boundary, and no handler is empty or turns a caught failure into a value. *Pending in Rust*: verifying that a wrapper's error enum covers every failure reported by the wrapped API, and catching handlers that use an error payload (such as logging it) before returning a fallback value, rely on model review (`L`, advisory-only on Rust).
+- **C15 — No integer-valued enumerations in the domain**: `Domain` and `Contracts` contain no integer-valued enumerations: no case carries an explicit numeric discriminant or integer representation. Categories are sum types of plain cases and flag sets are sets of cases; integer tags appear only as wire tags in `Codec` and the `Import` layer.
+
+---
+
+### Group D: Determinism and exactness
+
+Group D makes `Kernel` and `Domain` bit-for-bit reproducible: no I/O or ambient state, one seeded random service, no floats, widened integer wrappers for reference-matching arithmetic (`D4`, when reimplementing a reference program), no user-facing strings or special human-user types in the core, deterministic ordered collections, and three distinct time types.
+
+| Rule | Title | Rust status | Cadence | Check and scope in Rust |
+| :--- | :--- | :--- | :--- | :--- |
+| **D1** | No I/O or ambient state in the core | `built` | `commit` | Bans I/O, clock, environment, process, thread, lock, ID generation, non-const statics, and locale APIs in `Kernel` and `Domain`. |
+| **D2** | Randomness only through one seeded service | `built` | `commit` | Bans external random generators and hash-derived randomness in `Kernel` and `Domain`. |
+| **D3** | No floating point in the core | `built` | `commit` | Bans `f32` and `f64` types and floating-point operations in `Kernel` and `Domain`. |
+| **D4** | Exact arithmetic through kernel integer wrappers | `partial (Q+L; L advisory)` | `commit` | Rejects raw narrow integers and conversions outside `Kernel` and checks wrapper properties; type-inferred `try_into()` into a wrapper is advisory (`L`). |
+| **D5** | No user-facing text in the core | `built` | `commit` | Rejects string literals in `Kernel`, `Domain`, and `Contracts` unless listed as keys in `[text].keys`. |
+| **D8** | No special human user in the core | `review (advisory on Rust)` | `commit` | Assigned to model review (`L`, advisory-only on Rust). |
+| **D9** | No engine-specific attributes in the core entity | `dormant (no statement)` | `commit` | Dormant check on domain contexts; no prose statement. |
+| **D10** | Every component has its contract page and reads only its declared inputs | `dormant (no statement)` | `commit` | Dormant check on `Domain`; no prose statement. |
+| **D11** | Projections only read | `built (dormant)` | `commit` | Check that projections and read views draw no randomness and mutate no state is built, but dormant until context crates exist. |
+| **D12** | No hash-ordered collections in the core | `built` | `commit` | Bans `HashMap`, `HashSet`, and hash-derived ordering or keys in `Kernel` and `Domain`. |
+| **D13** | Three distinct time types | `partial` | `commit` | Rejects wall-clock `Instant` in `Domain` and `Application` signatures; splitting `Instant` and `Elapsed` in the `Clock` wrapper is pending. |
+
+- **D1 — No I/O or ambient state in the core**: `Kernel` and `Domain` perform no I/O and use no clock, environment, process, console, thread, lock, generated identifier, global mutable state, or non-constant module-level value, and no culture-sensitive parsing, formatting, or comparison.
+- **D2 — Randomness only through one seeded service**: `Kernel` and `Domain` draw randomness only through `Kernel`'s single seeded random service: no other generator, and no hashing used as a random source outside `Kernel`'s keyed draws.
+- **D3 — No floating point in the core**: `Kernel` and `Domain` use no floating-point types or floating-point operations.
+- **D4 — Exact arithmetic through kernel integer wrappers**: When the system must reproduce a reference program exactly, `Kernel` and `Domain` arithmetic goes through `Kernel` integer wrappers that widen to the reference's working width before every operation and truncate only on store, with the reference's signedness and division rounding. Each wrapper operation has a property proving it equals the widened reference computation, and raw numeric conversions appear only in `Kernel`. *Pending in Rust*: because the syntax-tree check (`syn`) has no type inference, a narrow value converted via a type-inferred trait call (`I16::create(x.try_into()?)`) is checked by model review (`L`, advisory-only on Rust).
+- **D5 — No user-facing text in the core**: `Kernel`, `Domain`, and `Contracts` contain no user-facing text: string literals appear only as listed identifiers and keys (`[text].keys`), and words come from text resources at the edge.
+- **D8 — No special human user in the core**: `Domain` has no special notion of "the human user": it models actors and roles only, and no type is named for the user. *Advisory in Rust*: marked `review` for Rust (`L`, advisory-only on Rust).
+- **D11 — Projections only read**: Projections and read views draw no randomness and change no state. *Dormant in Rust*: the check is built but dormant until the context crates it inspects exist.
+- **D12 — No hash-ordered collections in the core**: `Kernel` and `Domain` use no hash-ordered collections or hash-derived data: no hash maps or hash sets, and no hash code used for an order, a key, or a random draw. They use ordered maps and sets (`BTreeMap`, `BTreeSet`).
+- **D13 — Three distinct time types**: The core reads only `Kernel`'s domain `Date`; the `Clock` wrapper provides a wall-clock `Instant`, for metadata only, and a monotonic `Elapsed` time, for timeouts and time budgets. No `Domain` or `Application` signature takes a wall-clock `Instant`. *Pending in Rust*: reworking the `Clock` wrapper in `Infrastructure` to expose wall-clock `Instant` and monotonic `Elapsed` as distinct types is pending.
+
+---
+
+### Group G: Simplicity and module design
+
+Group G enforces function complexity and size limits, bans unnamed magic numbers in the domain, restricts parameter lists and tuples in public signatures, requires documentation comments on every public core item, and defines a design rubric for module depth. The ported-routine clauses of `G3`, `G4`, and `G7` apply when reimplementing a reference program.
+
+| Rule | Title | Rust status | Cadence | Check and scope in Rust |
+| :--- | :--- | :--- | :--- | :--- |
+| **G2** | The structure report | `report (no statement)` | `nightly` | Nightly holistic structure report; never gates commits; no prose statement. |
+| **G3** | A complexity ceiling | `built` | `commit` | Architecture check enforces function complexity (`<= 15`, or `<= 5` in `Application` and `Hosts`) and nesting depth (`<= 4`). |
+| **G4** | Size backstops, never targets | `built (partly report-only)` | `commit` | Architecture check enforces 80 lines/function, 500/module, and 600/file, and reports smaller indicators (lambda/tuple/condition/member/test size) without gating. |
+| **G7** | No magic numbers in the domain | `built` | `commit` | Architecture check rejects unnamed numeric literals other than `0`, `1`, and `-1` in `Domain` outside a `rules` module. |
+| **G11** | Named shapes, not positions | `built` | `commit` | Rejects >4 parameters or 3+ same-primitive parameters on public functions, plus tuples and boolean parameters in public signatures. |
+| **G12** | Every public member is documented | `built` | `commit` | Verifies that every public item in `Kernel`, `Domain`, and `Contracts` has a doc comment. |
+| **G13** | A design rubric of complexity red flags | `review (advisory on Rust)` | `commit` | Evaluated by the model reviewer (`L`, advisory-only on Rust). |
+
+- **G3 — A complexity ceiling**: Each function has a complexity of at most 15 (the `Application` and `Host` layers have a lower ceiling of 5 under `A17`) and a nesting depth of at most 4. Routines ported from a reference program may exceed a limit only through a scoped allowance whose count can only fall.
+- **G4 — Size backstops, never targets**: At most 80 lines per function or member, 500 per module, and 600 per file, with ported reference routines handled as for the complexity ceiling. Smaller backstops (lambda length, tuple size, boolean operators per condition, members per type, test function length) **are reported, not gated**. *Partly report-only*: the `80` / `500` / `600` line limits gate commits, whereas the smaller backstops (lambda length, tuple size, boolean operators per condition, members per type, and test function length) only report.
+- **G7 — No magic numbers in the domain**: `Domain` contains no unnamed numeric literal other than `0`, `1`, and `-1`; constants live in a named `rules` module, with ported reference routines handled as for the complexity ceiling.
+- **G11 — Named shapes, not positions**: No public function of a production package takes more than 4 parameters (records bundle anything more) or 3 or more parameters of the same primitive type, smart constructors excepted for the latter. The public signatures of `Domain`, `Contracts`, and `Application` use no tuples and no boolean parameters, and `Infrastructure`'s public signatures use no tuples; tuples remain fine inside functions.
+- **G12 — Every public member is documented**: Every public member of `Kernel`, `Domain`, and `Contracts` has a documentation comment, placed on its declaration, or on its separate interface declaration where the language has one.
+- **G13 — A design rubric of complexity red flags**: A design rubric holds the standard complexity red flags, each with a one-line test and caveats, plus two further items: the pass-through workflow (an `Application` workflow that only forwards its arguments, a concern when more than a fifth—20%—of a context's workflows do so) and complexity added for speed without a cited measurement. Advisory automated helpers feed the rubric but never block on their own. *Advisory in Rust*: evaluated by the model reviewer (`L`, advisory-only on Rust).
+
+---
+
+### Group E: Testing and verification
+
+Group E replaces mocking libraries with Nullable wrappers, bans test hooks in production code, enforces per-tier speed budgets and counting assertions, requires red-before-green and untouched tests in refactors, and checks aggregate properties, wrapper contract suites, and deterministic replay. Rules `E15` and `E25`'s exact-comparison clause apply when reimplementing a reference program.
+
+| Rule | Title | Rust status | Cadence | Check and scope in Rust |
+| :--- | :--- | :--- | :--- | :--- |
+| **E1** | No test doubles except Nullables | `partial` | `commit` | Bans `[banned].mocking`, external stubs, and direct wrapper construction; checking trait objects standing in for ports is pending. |
+| **E2** | Test through the public interface, with no hooks | `built` | `commit` | Bans `#[cfg(test)]` hooks, exposed internals, test-only methods, and private reflection in production crates. |
+| **E3** | Each test package has one kind | `partial` | `commit` | Checks test-crate dependencies by tier; running scenario tests through `Application` with Nullable edges waits for scenario crates. |
+| **E5** | Every wrapper and service is Nullable | `partial` | `commit` | Checks `create` and `create_null` signatures; checking no-I/O factories, trackers, `simulate`, exhausted-response panics, and `Application` services is pending. |
+| **E8** | Speed budgets and a wall-time ratchet | `partial` | `commit` | Inventory check enforces test and gate wall-time budgets and the 10% / 20-run ratchet; narrow-test count reporting per wrapper is pending. |
+| **E9** | Interactions checked only at the unmanaged edge | `partial (dormant)` | `commit` | Static check is dormant until writer wrappers exist; checking the unmanaged-dependency table and reviewing literal/golden expectations (`L`) are pending. |
+| **E10** | Properties per aggregate, of the right kinds | `partial (dormant)` | `commit` | Architecture tree check is dormant until context aggregates exist; generator spread, seed handling, snapshot prefixes, and `L` review are pending. |
+| **E11** | Tests read as behaviour, one act each | `built (Q; L advisory)` | `commit` | Architecture check enforces naming rules and single-act calls (`decide`/`handle`/`run`); `L` review of domain phrasing is advisory on Rust. |
+| **E12** | Red before green | `partial (replay dormant)` | `commit` | History check is wired, but parent-commit test replay is dormant until exit-code `101` crash-vs-assertion distinction lands. |
+| **E13** | Tests are independent of order, time and repetition | `partial` | `commit` | Architecture check bans mutable statics in tests and `Application` and caps sequential tests; nightly shuffle/parallel comparison and retry-loop review (`L`) are pending. |
+| **E14** | Coverage and defect counts are tripwires, not targets | `partial` | `commit` | Static check exists; pinning the Rust branch-coverage ratchet, health-report co-display, and prompt/report review (`L`) are pending. |
+| **E15** | Exact comparison against the reference program | `dormant (no statement)` | `commit` | Dormant exact-comparison test gate; no prose statement. |
+| **E16** | Test data comes from builders | `partial (Q+L; L advisory)` | `commit` | Rejects raw `Domain` struct literals in tests (allowing 1-field newtypes and `..builder()`); `Kernel`/`Contracts` structs and `L` naming review are pending. |
+| **E17** | One contract test list per wrapper, run on both forms | `partial (dormant)` | `commit` | Dormant until wrapper contract suites exist; checking 1 wrapper per narrow test, tier separation, and matching test names is pending. |
+| **E21** | Each wrapper declares its failure modes | `partial (dormant)` | `commit` | Dormant until wrappers exist; hang timeouts, `create_null` option wiring, health-report counts, and notice review (`L`) are pending. |
+| **E22** | Every test asserts something | `built` | `commit` | Architecture check requires house counting-assertion macros, bans native `assert!`, flags tautologies, and rejects ignored or focused tests. |
+| **E23** | Refactoring commits leave tests alone | `built` | `commit` | History check rejects refactoring commits that edit lines inside test bodies (beyond compiler-forced renames). |
+| **E25** | No test leaks the algorithm | `partial (Q+L; L advisory)` | `commit` | Architecture check catches identical free-function calls on both sides of an assertion; local bindings, operator chains, and helpers rely on review (`L`). |
+| **E26** | A small smoke tier | `partial (dormant)` | `commit` | Dormant until hosts and wrappers exist; 10 s gate routing, call-path tracing from smoke tests to `create`, and narrow-test pairing review (`L`) are pending. |
+| **E30** | Quarantine is recorded data | `partial (dormant)` | `commit` | History check on 7-day quarantine allow entries is dormant; feeding quarantined counts into `R1`'s flake indicator is pending. |
+| **E31** | The same inputs give the same state | `partial` | `nightly` | Enforces a static proxy banning hash-ordered collections in `Application`, `Day`, and `Codec` and custom hashers in tests; live state-hash and cross-OS replay are pending. |
+| **E32** | Many-seed simulation with invariants and reached checks | `dormant (no statement)` | `nightly` | Dormant nightly simulation rule; no prose statement. |
+| **E33** | Hygiene for snapshot tests | `partial` | `commit` | History check blocks `*.received.*` files and unapproved snapshots; testing the scrubber under two clocks waits for the first approval test. |
+| **E34** | Mutation ratchet | `planned (no statement)` | `nightly` | Planned nightly mutation-testing ratchet on `Kernel` and `Domain`; no prose statement. |
+| **E35** | Store narrow tests assert behaviour through read-back | `dormant (no statement)` | `commit` | Dormant narrow-test check on `Infrastructure`; no prose statement. |
+| **E36** | One shared, language-neutral behaviour suite | `partial (inventory dormant)` | `commit` | Inventory check is dormant until the shared `spec/` case format and Rust spec runner land. |
+
+- **E1 — No test doubles except Nullables**: Tests use no test doubles except Nullable infrastructure: no mocking library anywhere (`[banned].mocking`), no test-defined implementation of an `Infrastructure` or `Application` contract, and no stub, fake, or mock type outside `Infrastructure`, where an embedded stub lives in its wrapper's own file. Wrappers cannot be built from outside their own package except through their factories, and ports can be built only from wrappers. *Pending in Rust*: verifying that a trait object is not passed to stand in for a port.
+- **E2 — Test through the public interface, with no hooks**: Tests go through the public interface and production code has no test hooks: no exposing internals to test packages, no reflection into private members, no conditional compilation for tests (`#[cfg(test)]`), no members named for tests, and no test flags. The Nullable factory is the one test seam.
+- **E3 — Each test package has one kind**: A context's logic tests use only that context, `Kernel`, upstream `Contracts`, the test-data builders, and the test libraries, and test by output; scenario tests run through the `Application` layer with Nullable edges; and only the narrow integration test package touches real I/O, real wrappers, the network, processes, or the clock. *Pending in Rust*: running scenario test packages through `Application` with Nullable edges waits for the scenario test crates (the rule table marks the rule `built` alongside this pending part, so this guide shows `E3` as `partial`).
+- **E5 — Every wrapper and service is Nullable**: Every `Infrastructure` wrapper, and every `Application` service with infrastructure below it, exposes a real factory (`create`) and a Nullable factory (`create_null`) with only optional parameters, none of a third-party type, and neither factory does I/O (connecting happens on first use). Writers record their outputs as named behaviour types, never strings or primitives, and reads are not recorded; event sources expose simulation through the same handler as the real callback; and a configured response list that runs out fails loudly. *Pending in Rust*: verifying no I/O in factories, output trackers with named behaviour types, event simulation methods, loud failure when configured responses run out, and `Application` service factory pairs (waits for the first writer wrappers and application services).
+- **E8 — Speed budgets and a wall-time ratchet**: A logic test takes at most 20 ms, a scenario test at most 200 ms, the quick inner-loop check under 15 s, the full gate under 2 minutes, and the architecture tests under 10 s; anything slower is tagged for the nightly run, and an untagged slow test fails the gate. The wall time of the gate, the quick check, and each step may not grow more than 10% over the median of its last 20 green runs without a recorded reason, and the gate prints its 10 slowest tests and each step's time against its budget. *Pending in Rust*: counting and reporting narrow integration tests per wrapper (waits for the first narrow wrapper tests).
+- **E9 — Interactions checked only at the unmanaged edge**: Recorded outputs are asserted only in scenario tests and only for outputs to systems outside the application's control, listed in a dependency table, and are compared as a whole list against literals or golden files, never partially and never against the production encoder's output. A managed store is checked by reading its state back, and domain tests are output-based. *Pending in Rust*: dormant until writer wrappers exist; checking the dependency table for unmanaged status and model review (`L`, advisory on Rust) that expected lists are literals or golden files rather than encoder output are pending.
+- **E10 — Properties per aggregate, of the right kinds**: Each aggregate's property list includes at least: reachable states keep their invariants; `decide` is deterministic and a refusal changes nothing; `evolve` is total; a terminal state accepts no command; one model-based or metamorphic property (a round trip alone does not count); one stateful property over random command sequences; and, where snapshots are kept, snapshot equals replay at every prefix. Generators are tested to produce only valid values, the gate runs a fixed seed and the nightly run fresh seeds, and a failure's seed and shrunk case become a named example test. *Pending in Rust*: dormant until context aggregates exist; generator spread reports, fixed/fresh seed handling, snapshot-prefix properties, and model review (`L`, advisory on Rust) that property bodies match their names are pending.
+- **E11 — Tests read as behaviour, one act each**: Test names describe, in the domain's language, what a user would notice, with no `method_scenario_result` pattern, no leading `should`, and no public function name of the code under test. Each test checks one behaviour with a single call to a `decide`, `handle`, or `run` entry point, smoke tests excepted; branching inside a test body is allowed for table-driven tests. *Advisory in Rust*: the `L` model-reviewer component of this `Q+L` rule is advisory-only on Rust paths.
+- **E12 — Red before green**: For a feature or fix commit that changes `Kernel`, `Domain`, or `Application` behaviour, its new or changed tests, run against the parent commit's production code, must fail by an assertion. If they only fail to compile, or do not fail at all, the commit is blocked unless review accepts a reason. *Dormant in Rust*: parent-commit replay is dormant because an unhandled panic or abort in `cargo test` exits with code `101` just like a failed assertion; distinguishing a crash from a house-macro assertion failure is pending.
+- **E13 — Tests are independent of order, time and repetition**: There is no static or module-level mutable state in test code or an `Application` package, and tests forced to run sequentially carry a comment giving the reason and are capped in number. The nightly run executes the suite in random order with a recorded seed, both sequentially and in parallel; an outcome that differs on the same commit is a flaky test that blocks the next merge, and retries are forbidden everywhere. *Pending in Rust*: nightly random-order execution and sequential-versus-parallel comparison for Rust crates, plus model review (`L`, advisory on Rust) for hand-written retry loops around test acts.
+- **E14 — Coverage and defect counts are tripwires, not targets**: The core's branch coverage, recorded per commit with one pinned tool version, may not drop, and the report lists its uncovered branches. Neither coverage nor a defect count is a target in any rubric, report, or agent prompt, and coverage is always reported beside the assertion-free and red-before-green results and, once mutation testing exists, the surviving-mutant count. *Pending in Rust*: pinning the Rust coverage tool and branch ratchet, co-reporting in the health report, and model review (`L`, advisory on Rust) of prompts and session reports.
+- **E16 — Test data comes from builders**: Tests build their data only through test-data builders that read in the domain's language, never through literal domain records spread across many tests. *Pending in Rust*: extending the literal check from `Domain` structs to `Kernel` and `Contracts` structs (1-field tuple structs and struct-update syntax `Record { field, ..builder() }` are permitted by design), and model review (`L`, advisory on Rust) that builders read in the domain's language.
+- **E17 — One contract test list per wrapper, run on both forms**: Each wrapper with a direct third-party dependency has one contract test list, written as a function of a factory, that runs against the real factory (`create`) in the narrow integration tests and against the Nullable factory (`create_null`) in the fast tier, covering ordering, edge cases, and its declared failure modes. Each narrow test exercises one wrapper, and an `Application` service composed of wrappers relies on its wrappers' lists. *Pending in Rust*: dormant until wrapper contract suites exist; checking that each narrow test exercises a single wrapper, enforcing fast-versus-narrow tier placement, and verifying identical test names across both runs are pending.
+- **E21 — Each wrapper declares its failure modes**: Each wrapper declares its external failure modes (for example a full disk, a locked file, a closed socket, a slow answer, a hang, or a corrupt stored record). Each mode is a configurable response of its Nullable form with one test, a hang being timed out on monotonic elapsed time, and each becomes a typed wrapper error and a user notice by text key, and is counted in the health report. *Pending in Rust*: dormant until infrastructure wrappers exist; hang-timeout modes, verifying that tests configure modes via `create_null` options, counting modes in the health report, and model review (`L`, advisory on Rust) of user notice delivery are pending.
+- **E22 — Every test asserts something**: Every test executes at least one assertion through the code base's counting assertion module; no test calls the test framework's assertion functions directly, tautological assertions **are flagged**, and the main branch holds no focused or pending tests, which the gate detects and fails on.
+- **E23 — Refactoring commits leave tests alone**: A refactoring commit changes no line inside a test body other than renames the compiler forces, and keeps the gate green.
+- **E25 — No test leaks the algorithm**: An expected value is never computed by the production function or the same chain of operations over the same inputs. Collaborator-based isolation is forbidden in the exact-comparison tests and in `Kernel` arithmetic tests. *Pending in Rust*: the static check catches identical free-function calls on both sides of a single assertion; expected values bound to a local variable first, computed via operator or iterator chains, or built via test helpers rely on model review (`L`, advisory-only on Rust).
+- **E26 — A small smoke tier**: There are 1 to 3 smoke tests (the server host starts, runs one simulation step, and answers on its socket; every host builds) that together reach every real wrapper's real factory (`create`). They run in the gate if they finish within 10 s, otherwise in the nightly run and before each release, and a smoke failure is fixed together with the narrow test that would have caught it. *Pending in Rust*: dormant until hosts and wrappers exist; 10 s gate routing, tracing the full call path from smoke tests to each wrapper's `create`, and model review (`L`, advisory on Rust) that smoke fixes include a narrow test are pending.
+- **E30 — Quarantine is recorded data**: A flaky test may be quarantined only by an allow entry giving the reason, a dated approval from the engineering decision-maker, and an expiry of at most 7 days. An expired entry fails the gate, and quarantined tests are listed in the report and counted in the flaky-gate indicator. *Dormant in Rust*: the history check is dormant, and feeding the quarantined test count into `R1`'s flaky-gate indicator is pending.
+- **E31 — The same inputs give the same state**: The same seed and commands produce the same state hash twice in the gate, including when independent work of one step is processed in two different orders. In the nightly run a golden journal replays to the same snapshot bytes in two fresh processes, one single-threaded and one multi-threaded, and on a second operating system. *Pending in Rust*: enforces a static proxy banning hash-ordered collections in `Application`, `Day` (the cross-context composition crate), and `Codec` crates and custom hashers in tests; live state-hash determinism tests and multi-process/second-OS nightly replay wait for the domain contexts.
+- **E33 — Hygiene for snapshot tests**: Approval or snapshot files are used only for rendered or serialised output, never for a rule with a known value or in place of exact-comparison tests. No `received` files (`*.received.*`) are committed, nothing is approved automatically on a developer machine, and the scrubber is tested under two different clocks. *Pending in Rust*: testing the output scrubber under two clocks waits for the first approval test.
+- **E36 — One shared, language-neutral behaviour suite**: Scenario cases and reference recordings are written once as language-neutral data files in a shared behaviour suite (`spec/`). When the system is implemented in more than one language, each implementation's gate runs the whole shared suite, and a case that an implementation's runner skips fails that gate. *Dormant in Rust*: the inventory check is dormant until the shared case format and the Rust `spec/<case>` test runner are built.
+
+---
+
+### Group B: Bounded contexts, domain model, and glossary
+
+Group B ties the crate graph to the declared context map and the ubiquitous-language glossary, enforces the functional aggregate decider pattern (`decide` / `evolve` / `invariants`), and commits public API surface files.
+
+| Rule | Title | Rust status | Cadence | Check and scope in Rust |
+| :--- | :--- | :--- | :--- | :--- |
+| **B1** | The dependency graph equals the context map | `built` | `commit` | Verifies that crate dependencies match declared context-map relations and directions (`[vocabulary].relation_kind`). |
+| **B3** | Each aggregate is a decider | `built` | `commit` | Verifies `evolve`, `decide` (with `[decider].leading` parameters), refusal results, and `is_terminal` signatures. |
+| **B4** | The ubiquitous language is the glossary | `built (partly report-only)` | `commit` | Checks `Domain` and `Contracts` public names against the glossary and checks translations; unused glossary entries are reported only. |
+| **B5** | Aggregates refer to each other by identifier | `built` | `commit` | Verifies aggregate root markers and ensures aggregate states hold other aggregates only by typed ID. |
+| **B6** | One decision changes one aggregate | `built (dormant)` | `commit` | Check that all events returned by `decide` carry that aggregate's ID type is built, but dormant until context crates exist. |
+| **B7** | Domain events are past-tense facts | `built` | `commit` | Verifies events end in `-ed` or match `[names].past_irregular`, carry their aggregate ID, and hold only IDs and values. |
+| **B8** | Stores exist only for aggregate roots | `built` | `commit` | Verifies stores exist only for aggregate roots in `Infrastructure` and store ports are function types in `Application`. |
+| **B9** | Value objects have structural equality | `partial` | `commit` | Bans reference equality and checks `[allow].custom_equality`; checking property-test laws for custom equality is pending. |
+| **B11** | The model speaks the language of the business | `review (advisory on Rust)` | `commit` | Evaluated by the model reviewer (`L`, advisory-only on Rust). |
+| **B12** | Several aggregates in one entry only by name | `built (Q; L advisory)` | `commit` | Checks scheduled jobs, registered policies, and `[allow].same_entry`; `L` review component is advisory on Rust. |
+| **B13** | Each context declares its kind and style | `built` | `commit` | Checks context-map fields against `[vocabulary]` and verifies code matches (`transaction-script` vs `domain-model`/`event-sourced`). |
+| **B14** | Generic code knows nothing of the core | `partial` | `commit` | Checks that `Kernel` and `generic` contexts depend on no `core` or `supporting` context and use no `core` glossary terms; the rule table does not record what part remains pending. |
+| **B15** | Public events are distinct from internal events | `built` | `commit` | Verifies `Contracts` events are distinct from `Domain` internal events and checks the total mapping with no wildcard arm. |
+| **B17** | Upstream contracts are named only by inbound translation | `built` | `commit` | Verifies that only a downstream context's `Inbound` module names upstream `Contracts` types (unless `conformist`). |
+| **B18** | Each aggregate exposes its invariants | `partial (dormant)` | `commit` | Signature check for `invariants(state)` is dormant until context crates exist; running it after every scenario and simulation step is pending. |
+| **B19** | Create and reconstitute are separate | `dormant (no statement)` | `commit` | Dormant check on `Domain`, `Application`, and `Import`; no prose statement. |
+| **B20** | Every cross-aggregate reaction is listed in the policy table | `dormant (no statement)` | `commit` | Dormant check on `Application` and the policy table; no prose statement. |
+| **B21** | Process manager shape and attribute | `dormant (no statement)` | `commit` | Dormant check on process managers; no prose statement. |
+| **B22** | No pattern-named or vague names | `built` | `commit` | Rejects modules, files, types, and top-level functions in `Domain`, `Contracts`, and `Application` matching `[names].vague`. |
+| **B23** | The public surface is committed | `partial` | `commit` | Compares `Kernel` and `Contracts` public APIs against committed surface files; version notes, boundary tests, and port surfaces are pending. |
+| **B24** | The kernel is a shared kernel | `built (partly report-only)` | `commit` | History check runs the full gate when `Kernel` changes and flags `Kernel` public-surface diffs for review (report-only). |
+| **B25** | Aggregate size | `planned (no statement)` | `nightly` | Planned nightly report on aggregate size; no prose statement. |
+| **B26** | A short, approved product vision | `partial` | `commit` | History check verifies the product vision document's word count (~400 words), banned tech words, and decision citations; feeding it to `L` review is pending. |
+| **B27** | A stricter gate for the core | `partial (dormant)` | `commit` | History check is dormant until core contexts exist; exact-comparison inventory (`E15`), coverage ratchet, and mutant review (`L`) are pending. |
+
+- **B1 — The dependency graph equals the context map**: The package dependency graph equals the declared context map: every dependency between contexts is a declared relation in the declared direction, every declared relation exists in the code, and a `separate-ways` relation has no edge at all. Each relation's kind comes from a fixed list (`published-language`, `open-host-service`, `customer-supplier`, `conformist`, `anticorruption-layer`, `shared-kernel`, `partnership`, `separate-ways`).
+- **B3 — Each aggregate is a decider**: Each aggregate is a decider: a total `evolve` from state and event to state over the context's own types, and a `decide` from a closed list of leading parameters (`[decider].leading`), a command, and a state to either a list of events or a refusal. Business decisions live only in `decide`, an invalid transition is a refusal rather than a silent empty success, and an aggregate that can end exposes `is_terminal` and refuses every command once it has ended.
+- **B4 — The ubiquitous language is the glossary**: Every public type, union case, and record field of a `Domain` or `Contracts` package is a term in that context's section of the glossary, apart from generic helpers allowed by pattern (`[glossary].generic`). Each term appears once per section with a one-line meaning, a name public in two contexts is marked in the later one as a deliberate translation, and an entry that no code uses **is reported**. *Partly report-only*: missing glossary terms and unmarked cross-context translations fail the gate, whereas unused glossary entries are reported without failing the gate.
+- **B5 — Aggregates refer to each other by identifier**: Aggregates are explicitly marked as aggregate roots, and an aggregate's state refers to another aggregate only by its typed identifier, never by holding its state or a collection of its states.
+- **B6 — One decision changes one aggregate**: The events a single `decide` returns all carry that aggregate's identifier type. *Dormant in Rust*: the check is built but dormant until the domain context crates exist.
+- **B7 — Domain events are past-tense facts**: Domain events, public and private, are named in the past tense (ending in `-ed` or listed in `[names].past_irregular`), carry the identifier of their aggregate, and contain only identifiers and values, never another aggregate's state.
+- **B8 — Stores exist only for aggregate roots**: Stores exist only for aggregate roots and only in `Infrastructure`, apart from the single event store per stored instance, which holds its journal, snapshots, and archive. Store ports are function types declared in the `Application` layer.
+- **B9 — Value objects have structural equality**: Value objects have structural equality and reference equality is forbidden. A type with custom equality, ordering, or hashing needs an `[allow].custom_equality` entry and properties proving the laws (reflexive, symmetric, transitive, hash agrees with equality, ordering agrees with equality). *Pending in Rust*: verifying the property-test suite of laws for custom-equality types (waits for the domain context crates).
+- **B11 — The model speaks the language of the business**: Names, modules, and workflows in `Domain` read as the business does, not as storage structures or a legacy program's memory layout. *Advisory in Rust*: evaluated by the model reviewer (`L`, advisory-only on Rust).
+- **B12 — Several aggregates in one entry only by name**: Within one journal entry, events of more than one aggregate come only from scheduled jobs or from policies registered with same-entry consistency; any other case needs an `[allow].same_entry` entry that gives a reason. *Advisory in Rust*: the `L` model-reviewer component of this `Q+L` rule is advisory-only on Rust paths.
+- **B13 — Each context declares its kind and style**: Each context declares its subdomain class (`core`, `supporting`, `generic`), its logic style (`transaction-script`, `active-record`, `domain-model`, `event-sourced`), its architecture style (`layered`, `ports-and-adapters`, `cqrs`), and its status (`implemented`, `sample`, `planned`), from listed vocabularies (`[vocabulary]`). The code agrees with the declaration: a `transaction-script` context has no aggregate roots, and a `domain-model` or `event-sourced` context has `decide` and `evolve` per aggregate.
+- **B14 — Generic code knows nothing of the core**: A `generic` context and `Kernel` depend on no `core` or `supporting` context, and `Kernel`'s public names contain no term from a `core` context's glossary. *Pending in Rust*: marked `partial` in the rule table; the rule table does not record what part remains pending.
+- **B15 — Public events are distinct from internal events**: A context's public events, published in its `Contracts`, are types distinct from the internal events its `evolve` folds, and its `Domain` has a total mapping from each internal event to a list of public events with no wildcard case.
+- **B17 — Upstream contracts are named only by inbound translation**: Only a downstream context's designated `Inbound` translation module may name an upstream context's `Contracts` types, unless the context map declares the relation `conformist`. That module translates upstream messages into the downstream context's own commands.
+- **B18 — Each aggregate exposes its invariants**: Each aggregate exposes an `invariants` function from state to a list of breaches, empty when valid. Scenario tests and simulation runs check it after every step, and any breach is a defect that stops the run with the relevant slice of the journal. *Pending in Rust*: dormant until context crates exist; checking invariants after every scenario and nightly simulation step is pending.
+- **B22 — No pattern-named or vague names**: No module, file, type, or top-level function in `Domain`, `Contracts`, or `Application` is named with, or ends in, a pattern or vague word from a listed set (`[names].vague`: `Entities`, `ValueObjects`, `Services`, `Factories`, `Repositories`, `Helpers`, `Utils`, `Common`, `Shared`, `Misc`, `Base`, `Impl`, `Processor`, `Handler`, `Data`, `Info`, `Manager`), unless the whole name is a glossary term.
+- **B23 — The public surface is committed**: The public surface of `Kernel`, each `Contracts` package, and each port module is written to a committed surface file, and the gate fails on any difference not committed with it. A `Contracts` surface change comes with a version note and a boundary-test change in the same commit, and each context-map edge has its list of boundary tests. *Pending in Rust*: requiring a version note and boundary-test change alongside a `Contracts` surface change, and checking port-module surfaces (waits for context port modules and boundary tests).
+- **B24 — The kernel is a shared kernel**: A commit that touches `Kernel` runs the whole gate rather than the quick check, and any change to `Kernel`'s public surface **is flagged for review**. *Partly report-only*: running the full gate on `Kernel` edits is enforced, while `Kernel` public-surface diffs are flagged for review rather than failing the gate on their own.
+- **B26 — A short, approved product vision**: An approved product vision document exists, is under about 400 words, names no technology from a listed set, and is part of the reviewer's input. It changes only through a decision record; agents may only propose edits to it. *Pending in Rust*: including the vision document in the model reviewer's prompt (`L`, advisory-only on Rust).
+- **B27 — A stricter gate for the core**: Core contexts have a stricter gate: each aggregate's property list exists before its first merge, each core component has its exact-comparison tests before its first merge, the core's own branch-coverage ratchet may not fall, and, once mutation testing exists, surviving mutants on a core merge's changed lines are reviewed before it merges. *Pending in Rust*: dormant until core contexts exist; exact-comparison inventory (`E15`), the core branch-coverage ratchet, and surviving-mutant review (`L`) are pending (dropping an existing aggregate's property tests is refused by `E10`'s syntax-tree check).
+
+---
+
+### Group M: Messaging and event envelopes
+
+Group M requires every `Contracts` type to be marked as a `Command`, `Event`, or `View`, and gives every journaled event a deterministic causal envelope. Five additional in-process messaging rules in the rule table (`M3`–`M7`) are dormant and have no prose statement.
+
+| Rule | Title | Rust status | Cadence | Check and scope in Rust |
+| :--- | :--- | :--- | :--- | :--- |
+| **M1** | Every contracts type is one message kind | `built` | `commit` | Verifies every `Contracts` type is marked as `Command`, `Event`, or `View`, has no behaviour methods, and never stores commands as events. |
+| **M2** | Every journaled event has a causal envelope | `built (dormant)` | `commit` | Check for deterministic `correlation_id`, `causation_id`, and `version` envelope fields is built, but dormant until journal code lands. |
+| **M3** | Single declared in-process event dispatcher | `dormant (no statement)` | `commit` | Dormant check on `Application`; no prose statement. |
+| **M4** | Persist before publish | `dormant (no statement)` | `commit` | Dormant check on `Application` and `Infrastructure`; no prose statement. |
+| **M5** | Handler reads publisher's view as of the event's sequence number | `dormant (no statement)` | `commit` | Dormant `Q+L` check on `Contracts` and `Application`; no prose statement. |
+| **M6** | No dead letter in the core | `dormant (no statement)` | `commit` | Dormant check on `Application` and `Infrastructure`; no prose statement. |
+| **M7** | One writer per stored instance | `dormant (no statement)` | `commit` | Dormant `Q+L` check on `Application`, `Hosts`, and `Infrastructure`; no prose statement. |
+
+- **M1 — Every contracts type is one message kind**: Every `Contracts` type is exactly one marked message kind: a `Command` (an intent that may be refused), an `Event` (a fact), or a `View` (a snapshot to read). `Contracts` types carry no behaviour, and commands are never stored as events.
+- **M2 — Every journaled event has a causal envelope**: Every journaled event has an envelope with a `correlation_id` (the command or scheduled job that started the chain), a `causation_id` (the command or event that caused it), and a schema `version`, all deterministic. The sequence number is the journal's own, never an ID or a business key. *Dormant in Rust*: the check is built but dormant until the journal envelope types and store land.
+
+---
+
+### Group P: Persistence, codecs, and versioning
+
+Group P isolates persistence formats inside pure `Codec` crates as plain data-transfer objects, requires version headers and upcasting decoders backed by property tests and immutable golden files, enforces edge-generated command IDs and optimistic-concurrency sequence numbers (`BasedOn`, the journal event sequence number a command was computed against), and checks append-only union shapes.
+
+| Rule | Title | Rust status | Cadence | Check and scope in Rust |
+| :--- | :--- | :--- | :--- | :--- |
+| **P2** | Persisted forms are plain data-transfer objects | `partial` | `commit` | Checks `Codec` DTO field shapes, bans serialisation attributes in core crates, and checks smart-constructor decoding; field-tag table check is pending. |
+| **P3** | Persisted forms are versioned and proved | `partial` | `commit` | Checks format/version headers and typed `encode`/`decode` signatures; round-trip/never-fails properties, golden files, and decoder table checks are pending. |
+| **P4** | Golden saves | `planned (no statement)` | `on-demand` | Planned release check on golden saves; no prose statement. |
+| **P5** | The journal is append-only and gap-free per branch | `dormant (no statement)` | `commit` | Dormant store check; no prose statement. |
+| **P6** | Command ids are made at the edge | `partial (dormant)` | `commit` | Type check for edge-only `CommandId` is dormant until command envelopes land; store unique-key and duplicate-command tests are pending. |
+| **P7** | One accepted command is one atomic journal entry | `dormant (no statement)` | `commit` | Dormant check on `Infrastructure` and `Application`; no prose statement. |
+| **P8** | A snapshot records AtSeq and a checksum | `dormant (no statement)` | `commit` | Dormant check on `Infrastructure` and `Application`; no prose statement. |
+| **P9** | Crash injection | `dormant (no statement)` | `commit` | Dormant crash-injection test check; no prose statement. |
+| **P10** | The archive and every projection are written only by the store through one derivation entry | `dormant (no statement)` | `commit` | Dormant check on `Infrastructure`, `Application`, and `Contracts`; no prose statement. |
+| **P11** | Events carry the facts they used | `built (Q; L advisory)` | `commit` | Static check verifies `evolve` purity and event payloads; `L` model-review component is advisory on Rust. |
+| **P12** | Commands carry the position they were based on | `built (dormant)` | `commit` | Check for `BasedOn` journal sequence numbers and head-independent glossary marks is built, but dormant until context crates exist. |
+| **P13** | A tool that rewrites a file | `dormant (no statement)` | `commit` | Dormant check on file-rewriting tools; no prose statement. |
+| **P15** | Persisted or sorted unions are append-only | `built` | `commit` | History check verifies that persisted or sort-key unions only append new cases at the end against a committed shape file. |
+
+- **P2 — Persisted forms are plain data-transfer objects**: Persisted and wire forms are plain data-transfer objects in the context's `Codec`: integers and other primitives (no floating point), arrays, and nested transfer objects, with no optional, map, set, union, or tuple fields. Field tags are listed in a committed table and never reused, `Kernel`, `Domain`, and `Contracts` carry no serialisation annotations, no reflection-driven serialiser is used, and decoding builds domain values through their smart constructors. *Pending in Rust*: verifying the committed field-tag table (waits for the context codecs).
+- **P3 — Persisted forms are versioned and proved**: Every persisted form (snapshot, archive record, journal payload, content pack, wire message) starts with a format ID and version. `encode` is total and writes the header; `decode` handles every released version through per-version decoders ending in an upcast, returns a typed error, never fails abruptly, and refuses a newer version by its number. Each codec has a round-trip property and a never-fails property over arbitrary input, and every persisted kind and version has a committed golden file that must still decode and is never edited. *Pending in Rust*: verifying round-trip and never-fails property tests, committed golden files, and the per-version decoder table (waits for the context codecs).
+- **P6 — Command ids are made at the edge**: Every command envelope carries a `CommandId` made at the edge, never in the core and never a business key. The store has a unique key on `(stored instance, branch, CommandId)`, and a repeated append returns `already recorded` with the first position and writes nothing. *Pending in Rust*: dormant until command envelopes and the store land; the narrow test for the store's unique key and the scenario test for submitting the same command twice are pending.
+- **P11 — Events carry the facts they used**: Events carry the facts they used (amounts, rule set or content version, dates), and `evolve` never reads current mutable data or external content to interpret an event. *Advisory in Rust*: the `L` model-reviewer component of this `Q+L` rule is advisory-only on Rust paths.
+- **P12 — Commands carry the position they were based on**: A command carries the journal sequence number it was based on (`BasedOn`, the event sequence number read before deciding), and a stale command is refused as stale unless the command is declared independent of the head in the glossary. *Dormant in Rust*: the check is built but dormant until the domain context crates exist.
+- **P15 — Persisted or sorted unions are append-only**: A union that is persisted or used as a sort key only gains cases at the end, checked against a committed shape file, because union values may be ordered by their declaration order.
+
+---
+
+### Group R: Reliability, error budgets, and postmortems
+
+Group R enforces service-level reliability budgets and requires every fix commit to name the check or test that prevents a repeat (`Prevents:`).
+
+| Rule | Title | Rust status | Cadence | Check and scope in Rust |
+| :--- | :--- | :--- | :--- | :--- |
+| **R1** | Reliability targets with error budgets | `partial` | `commit` | History check enforces the flaky-gate window and budget; crash-free session and save-load counters wait for sessions and saves. |
+| **R2** | Each journal entry carries the previous entry's hash | `dormant (no statement)` | `nightly` | Dormant nightly journal-hash check; no prose statement. |
+| **R3** | Nightly backup restore and integrity drill | `dormant (no statement)` | `nightly` | Dormant nightly SQLite restore and `PRAGMA integrity_check` drill; no prose statement. |
+| **R4** | Repair and migration tools require a verified copy | `dormant (no statement)` | `commit` | Dormant check on repair and migration tools; no prose statement. |
+| **R5** | Defects promote a check | `partial` | `commit` | History check verifies `Prevents:` lines on fix commits; postmortem link check (dormant until postmortem files exist) and `L` review are pending. |
+| **R6** | Crash reports carry journal tail, seed, and build id | `dormant (no statement)` | `commit` | Dormant check on `Hosts` and tooling; no prose statement. |
+| **R8** | Staged rollout | `process (no statement)` | `on-demand` | Release-time process rule; no prose statement. |
+
+- **R1 — Reliability targets with error budgets**: A service-level file names the reliability indicators with their agreed targets, strict from the start (for example crash-free sessions, save-and-load success, flaky gate runs, and gate duration), each counted over a window with a minimum sample. The gate reads the policy, a spent error budget means reliability work only, and exactness and replay divergence are zero tolerance, never budgets. *Pending in Rust*: crash-free session and save-and-load counters wait until sessions and saves exist.
+- **R5 — Defects promote a check**: Every fix commit names, in a `Prevents` line, the type, rule, test, or rubric item that stops its class of defect, or `none` with a reason. Data loss, replay divergence, a long-broken main branch, or a defect that escaped review requires a blameless postmortem that asks why until the answer is a design or process change and ends with the rule or test it promoted; a link check fails on `none` or a dangling link. *Pending in Rust*: postmortem file link verification (dormant until the postmortems folder exists) and model review (`L`, advisory-only on Rust).
+
+---
+
+### Group S: Scope, branches, spikes, and exemplars
+
+Group S prevents scope creep and pattern drift: every backlog item must cite what it serves, session metrics and dormant rules are tracked, recurring patterns have one compiled exemplar, new modules start with two interface sketches, branches stay under one day and 400 lines, and exploratory spikes live outside the workspace and expire after 14 days.
+
+| Rule | Title | Rust status | Cadence | Check and scope in Rust |
+| :--- | :--- | :--- | :--- | :--- |
+| **S1** | Every backlog item serves something | `built` | `commit` | History check verifies backlog links to capabilities, decisions, or rules, and checks file-touch scope. |
+| **S2** | Budgets and trends reported each session | `built (partly report-only)` | `commit` | History check records session metrics against budgets; rules that do not fire outside their breach test are flagged (report-only), never removed automatically. |
+| **S3** | One reviewed exemplar per recurring need | `partial` | `commit` | Builds the compiled exemplars in the exemplar list; typed-ID and builder exemplars and `L` review of duplicate patterns and edits are pending. |
+| **S4** | Design it twice, interface first | `partial (dormant)` | `commit` | History check on interface-sketch specs is written, but dormant until specs carry an `Adds` line. |
+| **S5** | Branches are short-lived | `built` | `commit` | History check enforces `<= 1` day branch age and `<= 400` changed lines (excluding generated files). |
+| **S7** | Research is standing, adoption is evaluated | `process (no statement)` | `on-demand` | Standing research process rule; no prose statement. |
+| **S8** | Spikes are thrown away | `partial` | `commit` | History and dependency checks verify spike isolation and the 14-day deletion limit; the rule table does not record what part remains pending. |
+
+- **S1 — Every backlog item serves something**: Every backlog item names what it serves (a required capability, a recorded decision, or a rule ID); an item that serves nothing is not started without explicit dated approval. A clean-up inside files an item already touches is part of that item; anywhere else it is a separate item.
+- **S2 — Budgets and trends reported each session**: Each reporting period gives the rule count, allow entries, tool count, gate time, review time per item, public types per context, save size and load time, red-to-green time, and toil (manual interventions per merged item, where a repeated manual step becomes a tool). Growth past a budget needs approval, and a rule that has not fired outside its own breach test for a set number of sessions **is flagged, never removed automatically**. *Partly report-only*: growth past a budget requires approval, whereas a rule that has not fired outside its own breach test for a set number of sessions is flagged for review rather than removed or failing the gate.
+- **S3 — One reviewed exemplar per recurring need**: An exemplar list names one compiled, reviewed example per recurring need (typed ID, constrained value, decider, codec, Nullable wrapper, builder, narrow test), built in the gate, or the backlog item it waits for. A change to an exemplar is reviewed under this rule, and a second way of doing the same thing is a blocking review finding unless allowed. *Pending in Rust*: the typed-ID and builder exemplars wait for the domain context crates, and reviewing exemplar edits and refusing duplicate patterns rely on model review (`L`, advisory-only on Rust).
+- **S4 — Design it twice, interface first**: A new module, context, or wrapper starts with a spec holding two different interface sketches, each a signature with a short comment, and their comparison. Bodies come only after the chosen interface is reviewed, and a second reviewer reads the spec for gaps first. *Dormant in Rust*: the history check is dormant until specs carry an `Adds` line.
+- **S5 — Branches are short-lived**: A branch is merged within a day and holds at most 400 changed lines, excluding generated files, unless explicitly overridden.
+- **S8 — Spikes are thrown away**: Exploratory code lives in a dated spike folder outside the workspace, and no package depends on it. Nothing moves from a spike into production code or tests except by being rewritten test-first, and a spike folder older than 14 days is deleted with its finding recorded in its backlog item. *Pending in Rust*: marked `partial` in the rule table (with a history check); the rule table does not record what part remains pending.
+
+---
+
+### Group V: Blind model-reviewer gate and calibration
+
+Group V defines the architecture of the automated model-review runner. **Rust status at the time of writing**: all eight rules (`V1`–`V8`) are marked `partial` because the rubric items' file-path scopes do not cover the Rust workspace. Until the Rust rubric scopes and calibration cases are added, the model-review runner executes in **advisory-only mode** on Rust diffs, so model-review findings are recorded as non-blocking concerns.
+
+| Rule | Title | Rust status | Cadence | Check and scope in Rust |
+| :--- | :--- | :--- | :--- | :--- |
+| **V1** | Rubric items are binary questions | `partial (advisory on Rust)` | `commit` | Model-review runner validates rubric schema and binary verdicts; Rust file-path scopes and calibration cases are pending. |
+| **V2** | The automated reviewer is blind and isolated | `partial (advisory on Rust)` | `commit` | Model-review runner executes in a fresh read-only checkout with allow-listed inputs; Rust rubric scopes are pending. |
+| **V3** | Review findings are verified records | `partial (advisory on Rust)` | `commit` | Model-review runner verifies JSON findings (`rule`, `file`, `line`, `quote`); advisory-only on Rust paths. |
+| **V4** | The reviewer is calibrated on labelled cases | `partial (advisory on Rust)` | `commit` | Model-review runner checks calibration metrics (50–200 cases, 3+3 per item, 3 runs, TP `>= 0.90`, TN `>= 0.95`); Rust cases are pending. |
+| **V5** | No review on a stale calibration | `partial (advisory on Rust)` | `nightly` | Model-review runner checks hash changes, 30-day age, 3 disputes, accuracy bar, and weekly canary; advisory-only on Rust paths. |
+| **V6** | A second reviewer from another model family | `partial (advisory on Rust)` | `commit` | Model-review runner supports second-family confirmation; in an unattended session where no second reviewer is available, a verified block blocks on its own; Rust scopes are pending. |
+| **V7** | A findings ledger promotes repeat concerns | `partial (advisory on Rust)` | `commit` | Model-review runner tracks findings per rule ID to promote repeat concerns; Rust rubric scopes are pending. |
+| **V8** | Protected paths checked before review | `partial (advisory on Rust)` | `commit` | Model-review runner checks diffs on existing tests, standards, breaches, golden files, and gate scripts; Rust rubric scopes are pending. |
+
+- **V1 — Rubric items are binary questions**: Every rubric item is a binary question about one principle, with its rule ID, scope, violation, holds and cannot-determine conditions, a passing and a failing snippet with expected verdicts, evidence, severity, and status. Rubrics use no scores. *Pending on Rust paths*: rubric file scopes do not yet match the Rust workspace.
+- **V2 — The automated reviewer is blind and isolated**: Each item and each review runs in a fresh checkout with no leftover history, outputs, or other reviews, and the reviewer has no write access. Its input is built from an allow list (the diff, the rubric items whose scope the diff touches, the automated results, and read-only repository access) and never includes the author's summary, commit message, claims, or test narrative. *Pending on Rust paths*: rubric file scopes do not yet match the Rust workspace.
+- **V3 — Review findings are verified records**: Review findings are structured records with `rule`, `file`, `line`, `quote`, `verdict`, `severity`, and `reason` (`why`); a script verifies the rule ID, the diff line, and the quote, an unverified block or concern is downgraded to a note, and a merge happens only with no verified block. *Advisory on Rust paths*: the model-review runner executes in advisory-only mode on Rust diffs until Rust rubric scopes and calibration cases land.
+- **V4 — The reviewer is calibrated on labelled cases**: The reviewer is calibrated on a set of 50 to 200 labelled cases, with at least 3 faulty and 3 good cases per review item; each case runs 3 times and the majority counts. The record holds the true-positive and true-negative rates with 95% Wilson intervals, an agreement statistic, the unstable cases, the model, its settings, and the prompt and rubric hashes, and the bar is a true-positive rate of at least 0.90 and a true-negative rate of at least 0.95. *Pending on Rust paths*: Rust calibration cases are pending.
+- **V5 — No review on a stale calibration**: The review refuses to run when the model, prompt, or a rubric has changed, the calibration is over 30 days old, there have been 3 panel disputes or an escaped defect, the last run failed the bar, or the weekly hidden canary (a diff with a known fault) was missed or did not run. *Advisory on Rust paths*: the model-review runner is advisory-only on Rust diffs until Rust rubric scopes and calibration cases land.
+- **V6 — A second reviewer from another model family**: When a second reviewer model from a different family is available, it reviews every block and a weekly sample of merged diffs; a block it does not confirm becomes a concern and a calibration case. Where no second reviewer is available, a verified block blocks on its own. *Pending on Rust paths*: in an unattended session where no second-family reviewer is available, a verified block blocks on its own, and Rust rubric scopes are pending.
+- **V7 — A findings ledger promotes repeat concerns**: A findings ledger counts review findings per rule ID, and the second occurrence of a concern that an automated check could detect opens a task to promote it to such a check. *Pending on Rust paths*: Rust rubric scopes are pending.
+- **V8 — Protected paths checked before review**: Protected paths are checked on the diff before review: an author may add tests but may not change or delete an existing test line unless the spec names the file, and may not touch the standards, breach examples, golden files, or gate scripts, whose changes go to the responsible approver. *Pending on Rust paths*: Rust rubric scopes are pending.
