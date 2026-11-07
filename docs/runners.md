@@ -719,7 +719,7 @@ Input: a diff file. Optional inputs: a file of forbidden strings, the spec file 
    - the *shown* lines (added and context) with their new line numbers.
 
    Root every path to the repository: a diff taken inside a subfolder names `tools/x`, which becomes `<project>/tools/x`.
-3. **Choose the items in scope.** An item is in scope when some changed path matches one of the path globs in its `Scope` field and none of its exclusions. Exclusions are paths after the word "except", plus the breaches folder. See [rubrics.md](rubrics.md#scope).
+3. **Choose the items in scope.** An item is in scope when some changed path matches one of the path globs in its `Scope` field and none of its exclusions. Exclusions are paths after the word "except", plus the breaches folder. See [rubrics.md](rubrics.md#23-scope).
 4. **Refuse if stale (`V5`).** Build the health record and refuse with one line per trigger if any of these holds:
    - there is no calibration record (trial runs do not count);
    - the model ID differs from the record's;
@@ -765,7 +765,7 @@ Input: a diff file. Optional inputs: a file of forbidden strings, the spec file 
 
 ### 4.5 The `calibrate`, `rescore` and `canary` algorithms
 
-These are specified with the scoring in [rubrics.md, Calibration](rubrics.md#calibration). In outline:
+These are specified with the scoring in [rubrics.md, Calibration](rubrics.md#4-calibration). In outline:
 
 - **`calibrate`** builds each case's prompt exactly as `review` does, runs it an odd number of times (3), verifies each reply with step 10, scores the majority per label, and writes two files: a record (`evals/calibration-<stamp>.json`) and the raw replies (`.replies.jsonl`). It exits `1` below the bar. With `--only`, it writes a `trial-` record that `V5` ignores.
 - **`rescore`** recomputes a record from saved replies when labels or the scorer change. It refuses when the prompt, the rubric or the diffs differ from those the replies answered.
