@@ -8,7 +8,8 @@ dependencies {
 }
 
 // The real code is read by path, not from the classpath, so the meta-test sees exactly the
-// compiled classes of the production projects and of their tests.
+// compiled classes of the production projects and of their tests, and the production sources
+// (for the source scans, such as C12's).
 val realProjects = listOf(":kernel", ":loans:domain", ":loans:application", ":infrastructure:notices", ":host", ":testing")
 fun classesOf(path: String, set: String) =
     rootDir.resolve(path.removePrefix(":").replace(':', '/')).resolve("build/classes/java/$set")
@@ -16,8 +17,11 @@ fun classesOf(path: String, set: String) =
 tasks.test {
     dependsOn(realProjects.map { "$it:classes" }, realProjects.map { "$it:testClasses" }, ":breaches:allBreaches")
     val real = realProjects.flatMap { listOf(classesOf(it, "main"), classesOf(it, "test")) }
+    val realSources = realProjects.map { rootDir.resolve(it.removePrefix(":").replace(':', '/')).resolve("src/main/java") }
     inputs.files(real).withPropertyName("realClasses")
+    inputs.files(realSources).withPropertyName("realSources")
     inputs.dir(rootDir.resolve("breaches/build/classes/java")).withPropertyName("breaches")
     systemProperty("starter.real", real.joinToString(File.pathSeparator))
+    systemProperty("starter.realSources", realSources.joinToString(File.pathSeparator))
     systemProperty("starter.breaches", rootDir.resolve("breaches").path)
 }

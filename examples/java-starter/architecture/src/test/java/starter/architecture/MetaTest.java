@@ -26,7 +26,8 @@ import starter.testing.Expect;
 class MetaTest {
 
     private static final List<Check> CHECKS = Checks.all();
-    private static final Target REAL = Target.read("the real code", paths(System.getProperty("starter.real", "")));
+    private static final Target REAL = Target.read("the real code", paths(System.getProperty("starter.real", "")),
+            paths(System.getProperty("starter.realSources", "")));
     private static final Path BREACHES = Path.of(System.getProperty("starter.breaches", "breaches"));
     private static final Map<String, Target> BREACH_TARGETS = readBreaches();
 
@@ -87,7 +88,7 @@ class MetaTest {
         if (!Files.isDirectory(classes)) {
             throw new IllegalStateException("breach " + id + " has no compiled classes at " + classes);
         }
-        return Target.read("breach " + id, List.of(classes));
+        return Target.read("breach " + id, List.of(classes), List.of(BREACHES.resolve(id).resolve("src")));
     }
 
     private static List<Path> paths(String joined) {

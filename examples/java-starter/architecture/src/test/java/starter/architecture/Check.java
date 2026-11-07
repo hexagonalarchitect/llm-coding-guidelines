@@ -3,8 +3,11 @@ package starter.architecture;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.lang.ArchRule;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * One automated check. Every check has an id, a planted breach in {@code breaches/<id>/}, and
@@ -73,6 +76,57 @@ sealed interface Check {
         public Verdict evaluate(Target target) {
             List<String> findings = target.failures().stream().filter(m -> m.startsWith("[" + id + "]")).toList();
             return new Verdict(target.testsRun(), findings);
+        }
+    }
+
+    /**
+     * A flat source scan: a forbidden form, matched in the source text of the files in the listed
+     * packages, after comments and string literals are blanked out. It is for forms the compiled
+     * classes no longer show, such as a {@code default} arm of a {@code switch} (C12).
+     *
+     * @param id the check id
+     * @param packages the packages it selects, by each file's package declaration (sub-packages included)
+     * @param forbidden the form it forbids
+     * @param instead what to write instead, for the failure message
+     */
+    record Source(String id, List<String> packages, Pattern forbidden, String instead) implements Check {
+
+        private static final Pattern NOT_CODE =
+                Pattern.compile("/\\*.*?\\*/|//[^\n]*|\"(?:\\\\.|[^\"\\\\\n])*\"|'(?:\\\\.|[^'\\\\\n])'", Pattern.DOTALL);
+
+        @Override
+        public Optional<String> dormantUntil() {
+            return Optional.empty();
+        }
+
+        @Override
+        public Verdict evaluate(Target target) {
+            long selected = 0;
+            List<String> findings = new ArrayList<>();
+            for (Target.SourceFile file : target.sources()) {
+                if (packages.stream().noneMatch(p -> file.packageName().equals(p) || file.packageName().startsWith(p + "."))) {
+                    continue;
+                }
+                selected++;
+                String code = codeOnly(file.text());
+                Matcher found = forbidden.matcher(code);
+                while (found.find()) {
+                    long line = code.substring(0, found.start()).chars().filter(c -> c == '\n').count() + 1;
+                    findings.add("[" + id + "] " + file.path() + ":" + line + ": " + instead);
+                }
+            }
+            return new Verdict(selected, findings);
+        }
+
+        /** Blanks comments, string and character literals, keeping every line break so line numbers hold. */
+        private static String codeOnly(String text) {
+            Matcher notCode = NOT_CODE.matcher(text);
+            StringBuilder code = new StringBuilder();
+            while (notCode.find()) {
+                notCode.appendReplacement(code, notCode.group().replaceAll("[^\n]", ""));
+            }
+            notCode.appendTail(code);
+            return code.toString();
         }
     }
 }

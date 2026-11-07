@@ -30,6 +30,7 @@ check and nothing else:
 breaches/
   A1-layers/src/starter/loans/domain/DomainReachesUp.java
   A1-codec-layer/src/starter/loans/codec/CodecReachesUp.java
+  C12-no-default-arm/src/starter/loans/domain/DefaultHidesACase.java
   A10-one-wrapper/src/starter/loans/application/GsonOutsideItsWrapper.java
   D1-pure-core/src/starter/loans/domain/DueDateFromTheClock.java
   E1-no-mocking/src/starter/loans/application/MockedNotices.java
@@ -122,8 +123,8 @@ Every automated check is listed once, by id, in one place
 
 ```java
 static List<Check> all() {
-    return List.of(layers(), codecLayer(), oneWrapperPerLibrary(), noAmbientStateInCore(), noMocking(),
-            assertionsAreCounted(), new Check.Judge(CountedAssertions.CHECK_ID), new Check.Judge(TimeBudget.CHECK_ID));
+    return List.of(layers(), codecLayer(), oneWrapperPerLibrary(), noAmbientStateInCore(), noDefaultArm(),
+            noMocking(), assertionsAreCounted(), new Check.Judge(CountedAssertions.CHECK_ID), new Check.Judge(TimeBudget.CHECK_ID));
 }
 ```
 
@@ -138,8 +139,10 @@ record Verdict(long selected, List<String> findings) {}
 
 There are two kinds of check, and the harness treats them alike:
 
-- **Static checks** inspect code without running it. In the starter these are ArchUnit rules over
-  compiled classes. Each one names the classes it selects as well as the rule:
+- **Static checks** inspect code without running it. In the starter most are ArchUnit rules over
+  compiled classes, and one (`C12-no-default-arm`) is a flat scan of source text, for a form the
+  compiled class no longer shows (a `default` arm). Each one names what it selects as well as the
+  rule:
 
   ```java
   static Check noAmbientStateInCore() {
@@ -153,6 +156,9 @@ There are two kinds of check, and the harness treats them alike:
                       .because("the core takes time and randomness as parameters and keeps a stable order"));
   }
   ```
+
+  A source scan selects files by their package declaration, the same packages the ArchUnit rules
+  use, and counts the files it read as its `selected`.
 
 - **Test-runner judges** fail a test from inside the test runner: the counting-assertion guard
   (`E22`) and the per-test time budget (`E8`). In the starter they are JUnit extensions in

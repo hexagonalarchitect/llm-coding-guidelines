@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.regex.Pattern;
 import starter.testing.CountedAssertions;
 import starter.testing.TimeBudget;
 
@@ -38,8 +39,8 @@ final class Checks {
     private static final String CODEC = "starter.loans.codec..";
 
     static List<Check> all() {
-        return List.of(layers(), codecLayer(), oneWrapperPerLibrary(), noAmbientStateInCore(), noMocking(),
-                assertionsAreCounted(), new Check.Judge(CountedAssertions.CHECK_ID), new Check.Judge(TimeBudget.CHECK_ID));
+        return List.of(layers(), codecLayer(), oneWrapperPerLibrary(), noAmbientStateInCore(), noDefaultArm(),
+                noMocking(), assertionsAreCounted(), new Check.Judge(CountedAssertions.CHECK_ID), new Check.Judge(TimeBudget.CHECK_ID));
     }
 
     /** A1: each layer reaches only the layers below it. */
@@ -93,6 +94,19 @@ final class Checks {
                                 HashMap.class, HashSet.class)
                         .orShould().callMethodWhere(clockRead)
                         .because("the core takes time and randomness as parameters and keeps a stable order"));
+    }
+
+    /**
+     * C12: no {@code default} arm in any {@code switch} of the kernel, domain or application. The core
+     * switches only over its own sealed types and enums, so a default arm can only hide a case added
+     * later; the compiler checks exhaustiveness without it. A flat source scan, because the compiled
+     * class no longer shows whether the source had a default arm.
+     */
+    static Check noDefaultArm() {
+        return new Check.Source("C12-no-default-arm",
+                List.of("starter.kernel", "starter.loans.domain", "starter.loans.application"),
+                Pattern.compile("\\bdefault\\s*(->|:)"),
+                "a default arm in a switch over the system's own types; list every case so a new one is a compile error");
     }
 
     /** E1: no mocking library anywhere, production or test. Use the Nullable wrappers. */

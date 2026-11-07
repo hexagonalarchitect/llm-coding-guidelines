@@ -6,7 +6,7 @@ tests, and the self-test harness (`F5`) that proves every automated check agains
 breach. Copy its shape on day one, then grow it.
 
 The example context is "library loans", as in the guide's Example 2. Everything is deliberately
-tiny: 29 Java files, about 1,800 lines including build files.
+tiny: 30 Java files, about 1,950 lines including build files.
 
 ## Run it
 
@@ -18,8 +18,9 @@ scripts/gate.sh           # the same, plus a smoke run of the host, held to a 2-
 ./gradlew :host:run       # run the demo: renew, return, then a refused second return
 ```
 
-From a clean checkout (dependencies already downloaded), `scripts/gate.sh` was green in 27 s
-when this was written.
+From a clean checkout (dependencies already downloaded), `scripts/gate.sh` was green in 16 to 27 s
+when this was written, on a 4-core cloud container. Measure your own machine and CI before you
+set budgets (`templates/budgets.toml` at the repository root).
 
 ## Layout
 
@@ -27,6 +28,7 @@ when this was written.
 settings.gradle.kts            the project graph: one project per layer
 build.gradle.kts               compiler flags, Error Prone and NullAway, test set-up, for every project
 gradle/libs.versions.toml      every dependency version, pinned in one place
+**/gradle.lockfile             the locked dependency graph of each project, transitive versions included
 kernel/                        Kernel: Result
 loans/domain/                  Domain: LoanDays, ids, the Loan decider, LoanRules; tests and properties
 loans/application/             Application: LoanDesk workflow; scenario tests over the Nullable wrapper
@@ -49,7 +51,8 @@ the Gradle graph would have let it compile.
 | :--- | :--- | :--- |
 | `settings.gradle.kts`, `*/build.gradle.kts` | One project per layer; each project's dependencies are the ones its layer allows | `A1` |
 | `build.gradle.kts` | `-Xlint:all -Werror`, Error Prone, NullAway as an error, one place for all of it | `F1` |
-| `gradle/libs.versions.toml` | Every version pinned in one file | `H1` |
+| `gradle/libs.versions.toml` | Every direct version pinned in one file | `H2` |
+| `gradle.lockfile` (each project), `buildscript-gradle.lockfile`, `settings-gradle.lockfile` | Every resolved configuration locked in `STRICT` mode, transitive versions and the plugins' classpath included; rewritten only by `./gradlew resolveAndLockAll --write-locks` | `H2` |
 | `kernel/.../Result.java` | Refusals as values: a sealed `Ok`/`Err`, never null, never thrown | `C1`, `C11`, `C12` |
 | `loans/domain/.../LoanDays.java` | A constrained value: private constructor, `create` returning `Result`, `value()` | `C3` |
 | `loans/domain/.../LoanId.java`, `BookId.java`, `MemberId.java` | Typed ids; other aggregates referenced by id only | `B5` |
@@ -67,8 +70,8 @@ the Gradle graph would have let it compile.
 | `testing/.../CountedAssertions.java` | Judge: a test that counted no assertion fails | `E22` |
 | `testing/.../TimeBudget.java` | Judge: a per-test budget by tier (logic 20 ms, scenario 200 ms, architecture 10 s, nightly unjudged) | `E8` |
 | `testing/src/main/resources/...` | Both judges switched on for every Jupiter test by service-loader autodetection | `E8`, `E22` |
-| `architecture/.../Checks.java` | The registry of every automated check | `A1`, `A10`, `D1`, `D2`, `E1`, `E22`, `E8` |
-| `architecture/.../Check.java`, `Target.java` | How a check is run on a body of compiled code and what it reports | `F5` |
+| `architecture/.../Checks.java` | The registry of every automated check | `A1`, `A10`, `C12`, `D1`, `D2`, `E1`, `E22`, `E8` |
+| `architecture/.../Check.java`, `Target.java` | How a check is run on a body of compiled code (and its sources) and what it reports | `F5` |
 | `architecture/.../MetaTest.java` | The meta-test | `F5` |
 | `breaches/*/` | One planted violation per check | `F5` |
 | `scripts/gate.sh` | The gate and its wall-time budget | `E8` |
@@ -80,6 +83,7 @@ the Gradle graph would have let it compile.
 | `A1-layers` | ArchUnit | A layer reaching one it may not (domain to application, and so on) | `breaches/A1-layers`: a domain class names `LoanDesk.Refused` |
 | `A1-codec-layer` | ArchUnit, **dormant** | A codec reaching application, infrastructure or host; no codec exists yet | `breaches/A1-codec-layer`: a codec class names `LoanDesk.Refused` |
 | `A10-one-wrapper` | ArchUnit | Gson used outside `starter.infrastructure.notices` | `breaches/A10-one-wrapper`: an application class calls `new Gson()` |
+| `C12-no-default-arm` | Source scan | A `default` arm in any `switch` in kernel, domain or application code (comments and string literals are ignored) | `breaches/C12-no-default-arm`: a domain `switch` over `Loan.State` with a `default` arm |
 | `D1-pure-core` | ArchUnit | `Clock`, `InstantSource`, `Random`, `SecureRandom`, `ThreadLocalRandom`, `UUID`, `HashMap`, `HashSet`, `java.time.*.now`, `System.currentTimeMillis`/`nanoTime`, `Math.random` in kernel or domain | `breaches/D1-pure-core`: a domain class calls `LocalDate.now` |
 | `E1-no-mocking` | ArchUnit | Any dependency on Mockito, EasyMock, JMock, PowerMock or MockK, in any class | `breaches/E1-no-mocking`: a fixture calls `Mockito.mock` |
 | `E22-counted-assertions` | ArchUnit | A test class calling JUnit `Assertions`, AssertJ or Hamcrest directly | `breaches/E22-counted-assertions`: a test calls `Assertions.assertEquals` |
@@ -100,6 +104,7 @@ Each of these was made to the real code, run, seen to fail with the right check,
 | A test in `LoanTest` sleeps 25 ms | `:loans:domain:test`: `[E8-time-budget] anEndedLoanRefusesARenewal(Expect) took 25 ms, over its 20 ms budget.`, and the same in `MetaTest` |
 | A new check `C2-immutable-core` is added without a breach | `MetaTest.everyCheckHasExactlyOneBreachAndEveryBreachHasACheck`: the check id set and the breach folder set differ |
 | The `D1-pure-core` breach also names `LoanDesk.Refused` | `MetaTest`: `breach D1-pure-core also fires A1-layers` |
+| `Loan.isTerminal` replaces its `Ended` case with `default -> true` | `MetaTest`: `C12-no-default-arm fails on the real code: [... Loan.java:159: a default arm in a switch over the system's own types; ...]` |
 | A class appears in `starter.loans.codec` | `MetaTest`: `A1-codec-layer is dormant until BACKLOG-3 (first persisted form) but now selects 1 classes: wake it up` |
 | `Result.ok` returns `null` on a path | `:kernel:compileJava`: `[NullAway] returning @Nullable expression from method with @NonNull return type` |
 | `Main` calls `LocalDate.now()` with no zone | `:host:compileJava`: Error Prone `[JavaTimeDefaultTimeZone]`, an error under `-Werror` |
@@ -114,9 +119,17 @@ Each of these was made to the real code, run, seen to fail with the right check,
   `hashCode` are excluded from mutation. The `E8` judge is switched off inside PIT only
   (`-Dstarter.budgets=off`), because instrumented code is slow by design.
 - **jqwik 1.9.2** properties use a fixed seed and write their failure database under `build/`.
-- The Gradle distribution's SHA-256 is not pinned in `gradle-wrapper.properties`; add
-  `distributionSha256Sum` when adopting this (`H`-group).
-- Dependency locking (lockfiles) is not switched on; this starter pins direct versions only.
+- **Dependency locking** is on for every configuration of every project, in `STRICT` mode, and
+  for the plugins' classpath; the lockfiles are committed (`H2`). After changing a version in
+  `gradle/libs.versions.toml`, run `./gradlew resolveAndLockAll --write-locks` and commit the
+  changed lockfiles with the version. The gate never writes locks.
+- The Gradle distribution's SHA-256 is not pinned in `gradle-wrapper.properties`, the JDK is
+  pinned by major version only, and there is no `gradle/verification-metadata.xml`; add
+  `distributionSha256Sum`, an exact JDK check and checksum verification when adopting this
+  (`H1`, `H2`; see `docs/languages/java.md`).
+- **PIT's `mutationThreshold = 90`** is a simple floor while the project is tiny. The guide wants
+  a ratchet on the surviving-mutant count instead, never a percentage target (`E14`, `E34`);
+  replace the threshold with a ratchet once a nightly mutation run exists.
 
 ## Known gaps, stated honestly
 
@@ -128,9 +141,13 @@ Each of these was made to the real code, run, seen to fail with the right check,
   return their verdict as a `boolean`, which is their assertion. A jqwik `AroundPropertyHook` could
   carry both judges over.
 - **Tautological assertions are not flagged** (`E22` asks for that); `Expect` only counts.
-- **`C12` is held by the compiler, not by a check.** `javac` rejects a non-exhaustive `switch` over
-  a sealed type, but nothing here rejects a `default` arm that hides a future case. Error Prone has
-  no such check out of the box; a custom one would close this.
+- **`C12` is a flat source scan.** `javac` rejects a non-exhaustive `switch` over a sealed type,
+  and `C12-no-default-arm` rejects every `default` arm in kernel, domain and application sources.
+  It does not know the selector's type, so it also bans `default` over a JDK type there; the core
+  switches only over its own types, so that is the flat form the guide prefers (`F5`). It is a
+  regular expression over source text with comments and string literals blanked: a text block
+  holding `default ->` would fool it, and a total type pattern (`case Loan.State s ->`) is a
+  catch-all it does not see. An Error Prone check would close both.
 - **Compile-time constants are invisible to bytecode checks.** Java inlines `static final` strings
   and primitives, so a domain class that reads `LoanDesk.RETURN_NOTICE` leaves no dependency on
   `LoanDesk` in its class file. The Gradle project graph still blocks it here.

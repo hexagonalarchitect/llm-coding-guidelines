@@ -1,0 +1,8 @@
+# This is a Gradle generated file for dependency locking.
+# Manual edits can break the build and are not advised.
+# This file is expected to be part of source control.
+info.solidsoft.gradle.pitest:gradle-pitest-plugin:1.19.0=classpath
+info.solidsoft.pitest:info.solidsoft.pitest.gradle.plugin:1.19.0=classpath
+net.ltgt.errorprone:net.ltgt.errorprone.gradle.plugin:4.1.0=classpath
+net.ltgt.gradle:gradle-errorprone-plugin:4.1.0=classpath
+empty=
