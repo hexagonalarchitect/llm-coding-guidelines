@@ -25,7 +25,7 @@
 [tiers.logic]
 max_ms = 20
 
-# Workflows through Application with Nullable edges (E3, E5), in memory. 200 ms in the reference: a whole simulated period of a small world.
+# Workflows through Application with Nullable edges (E3, E5), in memory. 200 ms in the reference: a whole simulated business period over a small data set.
 [tiers.scenario]
 max_ms = 200
 
@@ -145,7 +145,7 @@ min_seconds = 1.0
 
 # ---------------------------------------------------------------------------------------------------------------------------------------
 # The gate's own reliability indicators (R1), from the reference's service-level file, strict from the start. Product indicators (crash-free
-# sessions, saves that load back exactly) go beside them once the product has sessions and saves; exactness and replay divergence are zero
+# sessions, stored instances that reopen exactly) go beside them once the product has sessions and stored instances; exactness and replay divergence are zero
 # tolerance, never budgets.
 
 # The share of gate runs that fail and then pass on the same commit. A timing-only re-run counts as flaky unless recorded otherwise.

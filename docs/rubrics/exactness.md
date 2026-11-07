@@ -39,14 +39,14 @@ Each item is answered `violation`, `holds` or `cannot_determine`, in the format 
 
 - **Question:** Does the domain change speak of who acts only through actors and their roles, with no notion of a human, user or operator-controlled unit?
 - **Scope:** every context's domain package (`src/contexts/*/domain/`).
-- **Violation when:** a type, field or condition singles out the human: `HumanBranch`, `UserBranch`, `is_operator_controlled`, `if branch == world.user_branch`, or a branch of logic that skips automation for "the user's branch".
+- **Violation when:** a type, field or condition singles out the human: `HumanBranch`, `UserBranch`, `is_operator_controlled`, `if branch == network.user_branch`, or a branch of logic that skips automation for "the user's branch".
 - **Holds when:**
   - commands carry an `Actor` with `Role`s (`LibrarianOf(branch)`, `BranchManagerOf(branch)`, `Administrator`), and rights are a pure function of them;
   - "member" meaning a library member, and "manager" meaning a role, are fine;
   - any number of librarians can act.
 - **Cannot determine when:** a field or parameter of a type declared outside the diff (`controller: BranchController`) may encode who controls a branch, and its declaration is not in the repository.
 - **Pass example:** `fn may_waive_fine(actor, branch) -> bool { actor.roles.iter().any(|r| r == LibrarianOf(branch)) }` holds: a role, not a human.
-- **Fail example:** `if transfer.from == world.user_branch { return None }` is a violation: the core knows which branch the human runs.
+- **Fail example:** `if transfer.from == network.user_branch { return None }` is a violation: the core knows which branch the human runs.
 - **Evidence:** the line that names or tests for the human.
 - **Severity:** block
 - **Status:** L (`D8`'s mechanical check for a type named for the user runs beside it)
@@ -71,7 +71,7 @@ Each item is answered `violation`, `holds` or `cannot_determine`, in the format 
 
 - **Question:** Can every new or changed event be applied by `evolve` without reading data that may have changed since the event was decided?
 - **Scope:** every context's contracts and domain packages (`src/contexts/*/contracts/`, `src/contexts/*/domain/`).
-- **Violation when:** an event lacks a value its `evolve` needs, and `evolve` looks that value up in current state, the world, a tariff table or external content. Examples: a fine computed from today's daily rate, a loan period looked up by item type in the current rules, a replacement cost read from the current catalogue.
+- **Violation when:** an event lacks a value its `evolve` needs, and `evolve` looks that value up in current state, a global setting, a tariff table or external content. Examples: a fine computed from today's daily rate, a loan period looked up by item type in the current rules, a replacement cost read from the current catalogue.
 - **Holds when:**
   - the event carries the decided values (amount, rate, date, rules version or content version), and `evolve` uses only them and the aggregate's own state;
   - `evolve` reads only data the event identifies by a fixed version;

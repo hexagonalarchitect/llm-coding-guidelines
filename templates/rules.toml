@@ -174,7 +174,7 @@ past_irregular = ["Sold", "Bought", "Lost", "Won", "Left", "Paid", "Sent", "Buil
 # decision may read besides them. The reference lists its rule-set type, its view of the seeded random stream (D2) and its domain date
 # (D13); list your own equivalents and nothing else.
 [decider]
-leading = ["Rules", "DiceView", "Date"]
+leading = ["Rules", "RandomView", "Date"]
 
 # A10: dependency-injection containers, banned everywhere (the Hosts wire the system by passing functions). E1: mocking libraries, banned
 # in every package (tests double with Nullable wrappers, E5). Names as the build file names them; keep the ecosystems you use.
@@ -1960,7 +1960,7 @@ status = "planned"
 [[rule]]
 id = "P4"
 group = "P"
-title = "Golden saves"
+title = "Golden stored instances"
 kind = "Q"
 cadence = "on-demand"
 extent = "atomic"

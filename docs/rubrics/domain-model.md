@@ -50,7 +50,7 @@ The scopes use a generic layout: `kernel/`, `contexts/<context>/{contracts,domai
 - **Holds when:**
   - names read as the business does (`Hold`, `HoldPlaced`, `renews`, `FineCharged`, `OverdueNotice`);
   - the decider vocabulary (`decide`, `evolve`, `create`, `value`) and kernel wrapper names (`Money`, `Day`);
-  - a business term that happens to sound technical, if the glossary defines it (in this domain a `Catalogue` or a `Shelf` is fine; in a sports domain the league `Table` is);
+  - a business term that happens to sound technical, if the glossary defines it (in this domain a `Catalogue` or a `Shelf` is fine; in a restaurant domain a `Table` is);
   - short local names in a lambda or a two-line scope.
 - **Cannot determine when:** a name is an abbreviation or a term that could be business jargon (a cataloguing or acquisitions term), and neither the glossary nor the diff explains it.
 - **Pass example:** `enum ReservationEvent { HoldPlaced(MemberId, ItemId) }` holds: a librarian would say it.
