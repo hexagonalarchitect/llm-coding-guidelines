@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -30,10 +32,54 @@ class MetaTest {
             paths(System.getProperty("starter.realSources", "")));
     private static final Path BREACHES = Path.of(System.getProperty("starter.breaches", "breaches"));
     private static final Map<String, Target> BREACH_TARGETS = readBreaches();
+    private static final Path RULES = Path.of(System.getProperty("starter.rules", "standards/rules.toml"));
+
+    /** The runners whose checks live in the check registry; a live row of another runner names none. */
+    private static final List<String> REGISTRY_RUNNERS = List.of("architecture", "inventory");
+
+    /** The statuses at which a check exists. */
+    private static final List<String> CHECKED = List.of("built", "partial", "dormant");
+
+    private static final Pattern FIELD = Pattern.compile("^(id|status|check|checks)\\s*=\\s*(.*)$");
+    private static final Pattern QUOTED = Pattern.compile("\"([^\"]*)\"");
+
+    /**
+     * One rule row, as far as this test reads it.
+     *
+     * @param id the rule id
+     * @param status its status
+     * @param runner the runner that owns its check (the row's runner field)
+     * @param checks the check ids that hold it
+     */
+    private record Row(String id, String status, String runner, List<String> checks) {}
 
     @Test
     void everyCheckHasExactlyOneBreachAndEveryBreachHasACheck(Expect expect) {
         expect.equal(new TreeSet<>(CHECKS.stream().map(Check::id).toList()), new TreeSet<>(BREACH_TARGETS.keySet()));
+    }
+
+    @Test
+    void theRuleTableNamesEveryCheckAndOnlyRegisteredOnes(Expect expect) {
+        List<String> registered = CHECKS.stream().map(Check::id).toList();
+        List<Row> rows = readRules();
+        List<String> problems = new ArrayList<>();
+        for (Row row : rows) {
+            for (String named : row.checks()) {
+                if (!registered.contains(named)) {
+                    problems.add(row.id() + " names " + named + ", which is not in the check registry");
+                }
+            }
+            if (CHECKED.contains(row.status()) && REGISTRY_RUNNERS.contains(row.runner()) && row.checks().isEmpty()) {
+                problems.add(row.id() + " is " + row.status() + " but names no check in `checks`");
+            }
+        }
+        for (String id : registered) {
+            if (rows.stream().noneMatch(row -> row.checks().contains(id))) {
+                problems.add("check " + id + " is named by no rule's `checks` in " + RULES);
+            }
+        }
+        expect.that(rows.size() > 100, "the rule table at " + RULES + " was read");
+        expect.equal(List.of(), problems);
     }
 
     @Test
@@ -71,6 +117,55 @@ class MetaTest {
             }
         });
         expect.equal(List.of(), problems);
+    }
+
+    /**
+     * Reads the [[rule]] rows of the rule table: a flat line reader for the four fields it needs, each
+     * on one line, rather than a TOML library in the test classpath.
+     */
+    private static List<Row> readRules() {
+        List<String> lines;
+        try {
+            lines = Files.readAllLines(RULES);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        List<Row> rows = new ArrayList<>();
+        Map<String, String> fields = new TreeMap<>();
+        boolean inRule = false;
+        for (String raw : lines) {
+            String line = raw.strip();
+            if (line.startsWith("[")) {
+                if (inRule) {
+                    rows.add(row(fields));
+                }
+                inRule = line.equals("[[rule]]");
+                fields.clear();
+                continue;
+            }
+            Matcher field = FIELD.matcher(line);
+            if (inRule && field.matches()) {
+                fields.put(String.valueOf(field.group(1)), String.valueOf(field.group(2)));
+            }
+        }
+        if (inRule) {
+            rows.add(row(fields));
+        }
+        return rows;
+    }
+
+    private static Row row(Map<String, String> fields) {
+        List<String> checks = new ArrayList<>();
+        Matcher quoted = QUOTED.matcher(fields.getOrDefault("checks", ""));
+        while (quoted.find()) {
+            checks.add(String.valueOf(quoted.group(1)));
+        }
+        return new Row(unquote(fields.getOrDefault("id", "")), unquote(fields.getOrDefault("status", "")),
+                unquote(fields.getOrDefault("check", "")), checks);
+    }
+
+    private static String unquote(String value) {
+        return value.replace("\"", "").strip();
     }
 
     private static Map<String, Target> readBreaches() {

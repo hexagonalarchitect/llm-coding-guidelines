@@ -6,15 +6,38 @@ The order matters. The toolchain and the build come first because every later ch
 
 Terms you may not know are in the [glossary](glossary.md). The rules themselves, each with its statement, are in the [guide](../README.md#4-the-rules-by-group).
 
-**Java, the short way.** Copy the starter and rename it:
+**Java, the short way.** Copy the starter's committed files only (never its `build/` or `.gradle/` folders, which a plain `cp -r` would bring along from a checkout that has been built), then rename it:
 
 ```sh
-cp -r examples/java-starter ~/src/lending && cd ~/src/lending && git init
+# from the root of this repository: only tracked files, no build output
+git archive --format=tar HEAD:examples/java-starter | (mkdir -p ~/src/lending && tar -x -C ~/src/lending)
+# or, from a plain copy of the folder:
+# rsync -a --exclude build --exclude .gradle --exclude .jqwik-database examples/java-starter/ ~/src/lending/
+cd ~/src/lending && git init
 ./gradlew check            # compile with -Werror, Error Prone and NullAway, tests, PIT, the meta-test
 scripts/gate.sh            # the same plus a smoke run of the host, against a 2-minute budget
 ```
 
-Then rename the `starter` package root to yours: the source folders, the `package` lines, `NullAway:AnnotatedPackages` in `build.gradle.kts`, the package constants in `architecture/.../Checks.java`, and the `breaches/*/src/` folders. Run `./gradlew check` after each rename. The steps below explain what you copied, so you can grow it, or rebuild it in another language.
+The starter's `.gitignore` already ignores `build/`, `.gradle/` and `.jqwik-database`. Then rename the `starter` package root to yours: the source folders, the `package` lines, `NullAway:AnnotatedPackages` in `build.gradle.kts`, the package constants in `architecture/.../Checks.java`, and the `breaches/*/src/` folders. Run `./gradlew check` after each rename. The steps below explain what you copied, so you can grow it, or rebuild it in another language.
+
+**Java, the long way: what to copy verbatim.** If you build your own project step by step instead, these starter files are domain-free and can be copied as they are, changing only the package line (paths under [`examples/java-starter/`](../examples/java-starter/README.md)):
+
+| File | What it is |
+| :--- | :--- |
+| `architecture/src/test/java/starter/architecture/Check.java` | the check kinds (ArchUnit rule, source scan, test-runner judge) and their verdict |
+| `architecture/src/test/java/starter/architecture/Target.java` | how a body of code (the real code, or one breach) is read and its tests run |
+| `architecture/src/test/java/starter/architecture/MetaTest.java` | the meta-test, including the rule-table comparison |
+| `architecture/build.gradle.kts` | how the meta-test gets the real code's and the breaches' paths (edit `realProjects`) |
+| `breaches/build.gradle.kts` | one source set per breach folder, nothing packaged |
+| `testing/src/main/java/starter/testing/Expect.java` | the counting assertion module (`E22`) |
+| `testing/src/main/java/starter/testing/CountedAssertions.java` | the judge that fails an assertion-free test (`E22`) |
+| `testing/src/main/java/starter/testing/TimeBudget.java` | the per-test time budget judge (`E8`) |
+| `testing/src/main/resources/META-INF/services/org.junit.jupiter.api.extension.Extension` and `testing/src/main/resources/junit-platform.properties` | switch both judges on for every Jupiter test |
+| `testing/build.gradle.kts` | the test-support project every project's tests depend on |
+| `kernel/src/main/java/starter/kernel/Result.java` | the kernel's `Result` |
+| `build.gradle.kts`, `settings.gradle.kts`, `gradle/libs.versions.toml`, `scripts/gate.sh`, `.gitignore` | compiler flags, locking, versions, project list, gate (edit the project list) |
+
+`architecture/src/test/java/starter/architecture/Checks.java` is the one harness file you rewrite: it names your packages and your checks. Copy the breach folders only for the checks you keep, and write the lockfiles afresh with `./gradlew resolveAndLockAll --write-locks`.
 
 ---
 
@@ -22,7 +45,7 @@ Then rename the `starter` package root to yours: the source folders, the `packag
 
 **Any language.**
 
-- Pin the compiler or runtime to an exact version in a committed file, never a floating channel (`H1`).
+- Pin the compiler or runtime to an exact version in a committed file, never a floating channel, and pin the build tool's own launcher (a wrapper) to an exact version and checksum (`H1`).
 - Put every direct version in one central file, exact, with no ranges (`H2`).
 - Turn on the package manager's lockfile for every dependency, transitive ones included, commit it, and make the gate restore in locked mode so that a drifting lockfile fails (`H2`).
 - Every version you adopt is at least 14 days old, and the commit that adds a package names its licence and its reason (`H4`). Until the supply-chain runner exists ([step 10](#10-what-to-defer-and-when)), check the age by hand on the registry page.
@@ -43,7 +66,15 @@ subprojects {
 }
 ```
 
-After changing a version, run `./gradlew resolveAndLockAll --write-locks` and commit the lockfiles with the change. The starter stops there; before you rely on it, add the wrapper's `distributionSha256Sum`, an exact JDK check and `gradle/verification-metadata.xml` ([java.md, section 2](languages/java.md#2-group-h-supply-chain-and-reproducible-builds)). Other languages: [Kotlin](languages/kotlin.md), [C#](languages/csharp.md), [TypeScript](languages/typescript.md).
+After changing a version, run `./gradlew resolveAndLockAll --write-locks` and commit the lockfiles with the change.
+
+Pin the Gradle wrapper to an exact version and the distribution's SHA-256, which Gradle publishes beside each distribution (`https://services.gradle.org/distributions/gradle-<version>-bin.zip.sha256`):
+
+```sh
+./gradlew wrapper --gradle-version 8.14.3 --gradle-distribution-sha256-sum <the published SHA-256>
+```
+
+This writes `distributionSha256Sum` into `gradle/wrapper/gradle-wrapper.properties`, and the wrapper then refuses a download with any other checksum. The starter's wrapper is not pinned this way yet: the environment it was built in could not reach `services.gradle.org` to read the checksum, so do this step when you copy it. The starter stops there; before you rely on it, add the wrapper's `distributionSha256Sum`, an exact JDK check and `gradle/verification-metadata.xml` ([java.md, section 2](languages/java.md#2-group-h-supply-chain-and-reproducible-builds)). Other languages: [Kotlin](languages/kotlin.md), [C#](languages/csharp.md), [TypeScript](languages/typescript.md).
 
 ## 2. Warnings are errors (`F1`)
 
@@ -57,11 +88,11 @@ After changing a version, run `./gradlew resolveAndLockAll --write-locks` and co
 
 1. Make one build unit (crate, Gradle project, Maven module, `.csproj`, workspace package) per layer of the [layer table](../README.md#example-1-package-layers-third-party-packages-and-vocabulary-checks-a1-a10-a9-b22): `kernel/`, then for your first context `contexts/<context>/domain/` and `contexts/<context>/application/`, one `infrastructure/<wrapper>/` per external system, `hosts/<name>/`, test packages under `tests/`, and `breaches/` for the planted breaches. Add `contracts/` and `codec/` when a second context or the first persisted form needs them, and the composition package (`Composition`, called `Day` in the guide) when a second context's application appears.
 2. Let each unit depend only on what its row allows. The build graph then holds most of `A1` before any check exists.
-3. Copy [templates/rules.toml](../templates/rules.toml) to `standards/rules.toml`. Keep the path patterns for your build system and delete the others; delete the `Import` and `ImportHost` rows and the `reimplementation = "whole"` rule rows unless you are reimplementing a reference program. Every rule starts `planned` (or `process`). The schema is [docs/rule-table.md](rule-table.md).
+3. Copy [templates/rules.toml](../templates/rules.toml) to `standards/rules.toml`. Keep the path patterns for your build system and delete the others; unless you are reimplementing a reference program, delete the `Import` and `ImportHost` layer rows and the `reimplementation = "whole"` rule rows (`A5`, `A7`, `D4`, `D10`, `E15`), and drop `Import` from `B19`'s `applies_to`. Every rule starts `planned` (or `process`). The schema is [docs/rule-table.md](rule-table.md).
 4. Copy [templates/budgets.toml](../templates/budgets.toml) to `standards/budgets.toml`; you will fill it in at step 5.
-5. These two files are principle files: from now on they change only by adding or tightening unless the commit cites a dated approval (`F4`). Until the history runner exists, hold that by review.
+5. **Make these edits before the first commit.** Until the two files are first committed as principle files, every change is free: delete rows, rename stages, set numbers. From that commit on, they change only by adding or tightening unless the commit cites a dated approval (`F4`): removing a row is then a loosening, and a new stage budget needs its decision record ([rule-table.md, section 6](rule-table.md#6-tightening-only-f4)). Until the history runner exists, hold that by review.
 
-**Java.** The starter's [`settings.gradle.kts`](../examples/java-starter/settings.gradle.kts) has one project per layer for one context, `loans`: `:kernel`, `:loans:domain`, `:loans:application`, `:infrastructure:notices`, `:host`, plus `:testing` (the test support of steps 7 and 8), `:architecture` (the checks and the meta-test) and `:breaches`. Its package roots follow the layers (`starter.kernel`, `starter.loans.domain`, ...), so the checks can select code by package. It is flatter than the template's `contexts/<context>/...` paths; match the template's `gradle` patterns to your layout, or the layout to the patterns. Java has no re-exports, so the guide's facade (`A1`) becomes "the application depends on its domain with `implementation`, never `api`"; the starter, being small, lets the host name domain types directly and says so.
+**Java.** The starter's own copy is [`standards/rules.toml`](../examples/java-starter/standards/rules.toml), adjusted exactly this way and with its layer patterns set to its layout. Its [`settings.gradle.kts`](../examples/java-starter/settings.gradle.kts) has one project per layer for one context, `loans`: `:kernel`, `:loans:domain`, `:loans:application`, `:infrastructure:notices`, `:host`, plus `:testing` (the test support of steps 7 and 8), `:architecture` (the checks and the meta-test) and `:breaches`. Its package roots follow the layers (`starter.kernel`, `starter.loans.domain`, ...), so the checks can select code by package. It is flatter than the template's `contexts/<context>/...` paths; match the template's `gradle` patterns to your layout, or the layout to the patterns. Java has no re-exports, so the guide's facade (`A1`) becomes "the application depends on its domain with `implementation`, never `api`"; the starter, being small, lets the host name domain types directly and says so.
 
 ## 4. The first three checks, each with its planted breach and the meta-test (`F5`)
 
@@ -79,7 +110,7 @@ Start with three checks that models break most often and that are cheap to write
 | `D1-pure-core` | `D1`, `D2`, `D12` | clocks, ambient randomness and hash-ordered collections in kernel and domain | a domain class reading today's date from the clock |
 | `E1-no-mocking` | `E1` | any mocking library, anywhere | a test fixture calling a mocking library |
 
-When a check and its breach pass the meta-test, set the rule's `status` in `standards/rules.toml` (`partial` with `parts_pending`, or `built`). Then plant one change in the real code (a clock read in the domain), see the meta-test fail with the check's id and the offending member, and restore it.
+When a check and its breach pass the meta-test, set the rule's `status` in `standards/rules.toml` (`partial` with `parts_pending`, or `built`) and name the check in the row's `checks` field (`checks = ["D1-pure-core"]` on `D1`, `D2` and `D12`). The meta-test compares those fields with the registry, so a check no rule names, or a rule that names a check that does not exist, fails the gate. Then plant one change in the real code (a clock read in the domain), see the meta-test fail with the check's id and the offending member, and restore it.
 
 **Java.** The starter's three are ArchUnit rules in [`Checks.java`](../examples/java-starter/architecture/src/test/java/starter/architecture/Checks.java), each registered with what it selects as well as what it forbids:
 
@@ -96,7 +127,7 @@ static Check noAmbientStateInCore() {
 }
 ```
 
-Its breach is [`breaches/D1-pure-core/src/starter/loans/domain/DueDateFromTheClock.java`](../examples/java-starter/breaches/D1-pure-core/src/starter/loans/domain/DueDateFromTheClock.java). The `:breaches` project compiles each folder as its own source set, and [`MetaTest.java`](../examples/java-starter/architecture/src/test/java/starter/architecture/MetaTest.java) reads the real code's and each breach's classes by path. The starter also has `A10-one-wrapper` (Gson only in its wrapper) and a dormant `A1-codec-layer`, which shows how a check waits for code that does not exist yet.
+`A1-layers` is ArchUnit's `layeredArchitecture()` over the layer packages, in the same file; [java.md, A1 (b)](languages/java.md#4-group-a-architecture-layers-and-dependencies) explains the form and what package layers cannot express. `D1-pure-core` bans clock reads, not `java.time` as a whole: value types such as `LocalDate` are allowed, and `D13` governs which time types a signature uses. Its breach is [`breaches/D1-pure-core/src/starter/loans/domain/DueDateFromTheClock.java`](../examples/java-starter/breaches/D1-pure-core/src/starter/loans/domain/DueDateFromTheClock.java). The `:breaches` project compiles each folder as its own source set, and [`MetaTest.java`](../examples/java-starter/architecture/src/test/java/starter/architecture/MetaTest.java) reads the real code's and each breach's classes by path. The starter also has `A10-one-wrapper` (Gson only in its wrapper) and a dormant `A1-codec-layer`, which shows how a check waits for code that does not exist yet.
 
 ## 5. A gate script with cold and warm budgets (`E8`, `S9`)
 
@@ -105,6 +136,8 @@ Its breach is [`breaches/D1-pure-core/src/starter/loans/domain/DueDateFromTheClo
 - runs every stage (restore, format, build, lint, architecture tests and meta-test, other tests) and exits non-zero if any fails;
 - never pipes a stage into `tail`, `head` or anything else whose exit status replaces the stage's (`set -euo pipefail` in bash), because `gate | tail && git push` pushes past a red gate (`S9`);
 - times each stage and the whole run, and fails a stage over its budget.
+
+The template's stage names (`restore`, `format`, `build`, `lint`, `architecture`, `tests`, `breaches`) come from a Rust stack; [templates/budgets.toml](../templates/budgets.toml) maps each to Gradle tasks. Rename the rows to your stages before the file's first commit, while that is free (step 3).
 
 Keep one budget table per **track**: warm local, cold local (build output removed), warm CI and cold CI (no restored cache). A cold run must neither fail against warm numbers nor loosen them. The template's numbers come from the reference code base's Rust stack; before you enforce them, run the gate three times per track on your own machine and on CI, and set each budget to about 1.5 times the slower run, with a comment saying where it came from. The full gate stays under 2 minutes and the quick inner-loop check under 15 seconds (`E8`).
 
@@ -169,7 +202,7 @@ Day one ends with: a pinned, locked build with warnings as errors; the layer uni
 | **Journal, store and messaging rules** | When the journal and the store land; write their checks and breaches earlier and keep them dormant | `M2`–`M7`, `P5`–`P10`, `R2`–`R4`, `E35` | the guide's groups M, P, R |
 | **Mutation ratchet, simulation** | When the core has a few aggregates and a nightly job; until then, hand mutants per branch (`E14`) | `E34`, `E32` | the guide's group E |
 
-A rule you are not ready for stays `planned` in the rule table; never delete its row (that is a loosening, `F4`). A check you can write before its target code exists is written now, with its breach, and marked dormant with the backlog item that brings the code: the meta-test then wakes it on the commit that adds that code.
+A rule you are not ready for stays `planned` in the rule table. After the table's first commit as a principle file, never delete its row (that is a loosening, `F4`); before it, deleting rows you will never need (step 3) is free. A check you can write before its target code exists is written now, with its breach, and marked dormant with the backlog item that brings the code: the meta-test then wakes it on the commit that adds that code.
 
 ---
 

@@ -99,17 +99,35 @@ tasks.named("jar") { enabled = false }   // nothing is packaged from here, ever
 ```
 
 No project declares a dependency on `:breaches`; `./gradlew :host:installDist` never compiles a
-breach. Only the architecture test task depends on `:breaches:allBreaches`, and it passes the
-folder to the meta-test as a path:
+breach. Only the architecture test task depends on the breach build, and it passes the folders to
+the meta-test as paths. The complete block (`architecture/build.gradle.kts`):
 
 ```kotlin
-// architecture/build.gradle.kts (abridged)
+// The real code is read by path, not from the classpath.
+val realProjects = listOf(":kernel", ":loans:domain", ":loans:application", ":infrastructure:notices", ":host", ":testing")
+fun classesOf(path: String, set: String) =
+    rootDir.resolve(path.removePrefix(":").replace(':', '/')).resolve("build/classes/java/$set")
+
 tasks.test {
-    dependsOn(..., ":breaches:allBreaches")
+    // Every task whose output the meta-test reads by path. Leave out :breaches:classes and
+    // :breaches:testClasses and Gradle refuses the build with an implicit-dependency error,
+    // because the breaches input folder below also holds those source sets' output.
+    dependsOn(realProjects.map { "$it:classes" }, realProjects.map { "$it:testClasses" },
+        ":breaches:allBreaches", ":breaches:classes", ":breaches:testClasses")
+    val real = realProjects.flatMap { listOf(classesOf(it, "main"), classesOf(it, "test")) }
+    val realSources = realProjects.map { rootDir.resolve(it.removePrefix(":").replace(':', '/')).resolve("src/main/java") }
+    inputs.files(real).withPropertyName("realClasses")
+    inputs.files(realSources).withPropertyName("realSources")
+    inputs.dir(rootDir.resolve("breaches/build/classes/java")).withPropertyName("breaches")
     systemProperty("starter.real", real.joinToString(File.pathSeparator))
+    systemProperty("starter.realSources", realSources.joinToString(File.pathSeparator))
     systemProperty("starter.breaches", rootDir.resolve("breaches").path)
+    inputs.file(rootDir.resolve("standards/rules.toml")).withPropertyName("rules")
+    systemProperty("starter.rules", rootDir.resolve("standards/rules.toml").path)
 }
 ```
+
+Change `realProjects` to your projects' paths.
 
 Breaches compile under the same warnings-as-errors and static-analysis settings as production
 code. That is deliberate: a breach must break exactly one rule, not the compiler's rules as well.
@@ -183,7 +201,8 @@ green.
 
 ## 3. What the meta-test asserts
 
-`architecture/src/test/java/starter/architecture/MetaTest.java` holds three tests.
+`architecture/src/test/java/starter/architecture/MetaTest.java` holds four tests: the three below,
+and one that compares the rule table with the registry (section 3.4).
 
 ### 3.1 Every check has exactly one breach, and every breach has a check
 
@@ -263,6 +282,16 @@ The first condition is the ordinary gate: the real code obeys every rule. When a
 was added to `Loan.isTerminal`, this test failed with
 `D1-pure-core fails on the real code: [Method <starter.loans.domain.Loan.isTerminal(...)> calls method <java.time.LocalDate.now(java.time.ZoneId)> in (Loan.java:157)]`.
 The other two conditions are about vacuity and dormancy, covered next.
+
+### 3.4 The rule table names every check, and only registered ones
+
+Each rule row in `standards/rules.toml` lists the check ids that hold it in a `checks` field
+([rule-table.md](rule-table.md#fields)): `D1`, `D2` and `D12` all name `D1-pure-core`; `A1` names
+`A1-layers` and `A1-codec-layer`. The test reads the rows with a flat line reader (each field on one
+line) and fails when a row names a check that is not registered, when a registered check is named
+by no row, or when a `built`, `partial` or `dormant` row whose runner is `architecture` or
+`inventory` names none. So the table cannot claim a rule is checked by something that does not
+exist, and a check cannot run without saying which rule it holds.
 
 ---
 
@@ -353,6 +382,18 @@ A team (or a model) adds a check in one commit, with these steps:
    selector or mark it dormant with the backlog item that will bring its target.
 7. **If the real code breaks the new rule**, fix the code in the same change, or record a scoped,
    dated exception (`I2`) rather than weakening the check.
+8. **Name the check in the rule table**: add its id to the `checks` field of each rule it holds,
+   and set the row's `status` (section 3.4 fails until you do).
+
+**Breach tests and the time budget.** A breach for a test-runner judge is a test, and the
+meta-test runs it in-process. On a cold JVM the first run of a test can take far longer than its
+warm time (class loading, interpretation before the JIT compiles it), so an `E22` breach that only
+asserts nothing can also go over the 20 ms logic budget and fire `E8-time-budget` too, and the
+meta-test then reports "breach E22-asserts-something also fires E8-time-budget". The starter
+avoids it in `Target.read`: it runs a target's tests once to warm up and judges only the second
+run. Do not avoid it by tagging the breach into a slower tier, which would make the breach unlike
+the mistake it stands for, or by switching the time judge off in the meta-test, which would leave
+the `E8` breach unproved.
 
 A judge follows the same steps, with its breach a small test the judge should fail.
 

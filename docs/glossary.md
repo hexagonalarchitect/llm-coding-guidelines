@@ -32,7 +32,7 @@ The guide's own terms, for a reader who has not seen the reference code base. Ea
 
 **Canary.** A diff with a known fault, given to the reviewer weekly without notice; a missed canary stops the review until recalibration. [`V5`](../README.md#group-v-blind-model-reviewer-gate-and-calibration).
 
-**Check id.** A rule id plus a short name (`A1-layers`, `C12-no-default-arm`), because one rule may need several checks. It names the check's breach folder and starts its failure message. [`F5`](../README.md#group-f-compiler-hygiene-and-self-proving-rules); [self-test-harness.md](self-test-harness.md#2-the-check-registry).
+**Check id.** A rule id plus a short name (`A1-layers`, `C12-no-default-arm`), because one rule may need several checks. It names the check's breach folder, starts its failure message, and is listed in the `checks` field of each rule-table row it holds. [`F5`](../README.md#group-f-compiler-hygiene-and-self-proving-rules); [self-test-harness.md](self-test-harness.md#2-the-check-registry).
 
 **Codec.** The layer that turns domain values into persisted or wire forms and back, through plain data-transfer objects and versioned decoders. It does no I/O. [`A8`](../README.md#group-a-architecture-layers-and-dependencies), [`P2`](../README.md#group-p-persistence-codecs-and-versioning), [`P3`](../README.md#group-p-persistence-codecs-and-versioning).
 

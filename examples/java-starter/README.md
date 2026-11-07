@@ -6,7 +6,7 @@ tests, and the self-test harness (`F5`) that proves every automated check agains
 breach. Copy its shape on day one, then grow it.
 
 The example context is "library loans", as in the guide's Example 2. Everything is deliberately
-tiny: 30 Java files, about 1,950 lines including build files.
+tiny: 30 Java files, about 2,050 lines including build files, plus the rule table.
 
 ## Run it
 
@@ -29,6 +29,7 @@ settings.gradle.kts            the project graph: one project per layer
 build.gradle.kts               compiler flags, Error Prone and NullAway, test set-up, for every project
 gradle/libs.versions.toml      every dependency version, pinned in one place
 **/gradle.lockfile             the locked dependency graph of each project, transitive versions included
+standards/rules.toml           the rule table: templates/rules.toml adjusted for this project; each rule names its checks
 kernel/                        Kernel: Result
 loans/domain/                  Domain: LoanDays, ids, the Loan decider, LoanRules; tests and properties
 loans/application/             Application: LoanDesk workflow; scenario tests over the Nullable wrapper
@@ -72,7 +73,8 @@ the Gradle graph would have let it compile.
 | `testing/src/main/resources/...` | Both judges switched on for every Jupiter test by service-loader autodetection | `E8`, `E22` |
 | `architecture/.../Checks.java` | The registry of every automated check | `A1`, `A10`, `C12`, `D1`, `D2`, `E1`, `E22`, `E8` |
 | `architecture/.../Check.java`, `Target.java` | How a check is run on a body of compiled code (and its sources) and what it reports | `F5` |
-| `architecture/.../MetaTest.java` | The meta-test | `F5` |
+| `standards/rules.toml` | The rule table, copied from the template and adjusted before its first commit: layer patterns for this layout, the reimplementation-only rows deleted, and `status`, `checks` and `parts_pending` filled for the rules checked here | `F4`, `F5`, `I1` |
+| `architecture/.../MetaTest.java` | The meta-test: ids and breach folders match; each check passes on the real code and selects something there unless dormant; each breach fires its own check only (after one warm-up run of its tests); and each rule's `checks` names only registered checks, while every registered check is named by some rule | `F5` |
 | `breaches/*/` | One planted violation per check | `F5` |
 | `scripts/gate.sh` | The gate and its wall-time budget | `E8` |
 
@@ -102,6 +104,7 @@ Each of these was made to the real code, run, seen to fail with the right check,
 | `Loan.isTerminal` calls `LocalDate.now(ZoneOffset.UTC)` | `MetaTest`: `D1-pure-core fails on the real code: [Method <starter.loans.domain.Loan.isTerminal(...)> calls method <java.time.LocalDate.now(java.time.ZoneId)> in (Loan.java:157)]` |
 | A test in `LoanTest` stops asserting | `:loans:domain:test`: `[E22-asserts-something] loanDaysAreValues(Expect) asserted nothing.`, and the same finding in `MetaTest` |
 | A test in `LoanTest` sleeps 25 ms | `:loans:domain:test`: `[E8-time-budget] anEndedLoanRefusesARenewal(Expect) took 25 ms, over its 20 ms budget.`, and the same in `MetaTest` |
+| `E1`'s row names `E1-no-mocks` instead of `E1-no-mocking` | `MetaTest.theRuleTableNamesEveryCheckAndOnlyRegisteredOnes`: `E1 names E1-no-mocks, which is not in the check registry, check E1-no-mocking is named by no rule's checks` |
 | A new check `C2-immutable-core` is added without a breach | `MetaTest.everyCheckHasExactlyOneBreachAndEveryBreachHasACheck`: the check id set and the breach folder set differ |
 | The `D1-pure-core` breach also names `LoanDesk.Refused` | `MetaTest`: `breach D1-pure-core also fires A1-layers` |
 | `Loan.isTerminal` replaces its `Ended` case with `default -> true` | `MetaTest`: `C12-no-default-arm fails on the real code: [... Loan.java:159: a default arm in a switch over the system's own types; ...]` |
@@ -123,10 +126,12 @@ Each of these was made to the real code, run, seen to fail with the right check,
   for the plugins' classpath; the lockfiles are committed (`H2`). After changing a version in
   `gradle/libs.versions.toml`, run `./gradlew resolveAndLockAll --write-locks` and commit the
   changed lockfiles with the version. The gate never writes locks.
-- The Gradle distribution's SHA-256 is not pinned in `gradle-wrapper.properties`, the JDK is
-  pinned by major version only, and there is no `gradle/verification-metadata.xml`; add
-  `distributionSha256Sum`, an exact JDK check and checksum verification when adopting this
-  (`H1`, `H2`; see `docs/languages/java.md`).
+- The Gradle distribution's SHA-256 is not pinned in `gradle-wrapper.properties`, because the
+  environment it was built in could not reach `services.gradle.org`; pin it with
+  `./gradlew wrapper --gradle-version 8.14.3 --gradle-distribution-sha256-sum <sum>`, with the
+  sum Gradle publishes beside the distribution (`docs/quick-start.md`, step 1). The JDK is also
+  pinned by major version only, and there is no `gradle/verification-metadata.xml`; add an exact
+  JDK check and checksum verification when adopting this (`H1`, `H2`; see `docs/languages/java.md`).
 - **PIT's `mutationThreshold = 90`** is a simple floor while the project is tiny. The guide wants
   a ratchet on the surviving-mutant count instead, never a percentage target (`E14`, `E34`);
   replace the threshold with a ratchet once a nightly mutation run exists.

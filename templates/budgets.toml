@@ -63,6 +63,23 @@ total_max_s = 10
 # tests), tests (every other gate test), breaches (the planted breaches, F5: build each and expect its rule alone to fail), history (the
 # history check on the commit range), inventory (the test inventory and per-test budgets), review (the model-review runner's mechanical part).
 # Rename them to your gate's stages; a stage with no row is not judged, so give every stage a row.
+#
+# These names come from the reference's Rust stack, where format, build and lint are separate tools. On Java with Gradle, one way to map
+# them (one timed Gradle invocation per stage; see examples/java-starter and docs/languages/java.md):
+#   restore      Gradle downloads dependencies inside the first task that needs them, so on a warm cache this is near zero; keep the
+#                row with a comment saying it is folded into build, and measure it on the cold tracks
+#   format       `spotlessCheck` (none in the starter yet)
+#   build        `classes testClasses`: javac with -Werror, and Error Prone and NullAway, which run inside javac on the JVM
+#   lint         `checkstyleMain checkstyleTest pmdMain forbiddenApis` (empty in the starter, whose analysers all run in build)
+#   architecture `:architecture:test`: the ArchUnit and source checks and the meta-test
+#   breaches     `:breaches:allBreaches` (compiling the breaches; the meta-test that judges them runs in architecture)
+#   tests        `test` in every other project, under the E8 and E22 judges
+#   mutation     `pitest` (add the row: the starter runs PIT inside check; it moves to the nightly run once a ratchet exists, E34)
+#   history, inventory, review: the language-neutral runners, as named.
+#
+# Rows written before this file's first commit as a principle file are free: rename, add, delete and set them to your own measurements.
+# After that commit, a new or renamed stage and any change to a stage budget need a decision record, because the history check knows no
+# direction for a key that does not start with `max` (docs/rule-table.md, section 6).
 
 # A warm local run: one domain file touched, build output present. From the reference's Rust track on a 4-core container (format 5, build
 # 40, lint 30, tests 30, breaches 40) and its earlier .NET track (restore 10, architecture 10, history 10, inventory 5, review 10).

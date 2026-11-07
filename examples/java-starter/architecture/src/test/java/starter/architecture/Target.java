@@ -26,8 +26,8 @@ import org.junit.platform.testkit.engine.EngineTestKit;
  * A body of compiled code a check is run against: the real code, or one planted breach.
  *
  * <p>It is read once, by path: the classes for the architecture checks, the source files for the
- * source scans (C12), and one in-process run of the Jupiter tests among the classes for the test
- * judges (E8, E22).
+ * source scans (C12), and an in-process run of the Jupiter tests among the classes for the test
+ * judges (E8, E22), after one warm-up run.
  *
  * @param name what this target is, for messages
  * @param classes the imported classes
@@ -60,10 +60,11 @@ record Target(String name, JavaClasses classes, List<SourceFile> sources, long t
             DiscoverySelector[] selectors = tests.stream()
                     .map(test -> DiscoverySelectors.selectClass(load(test, loader)))
                     .toArray(DiscoverySelector[]::new);
-            EngineExecutionResults run = EngineTestKit.engine("junit-jupiter")
-                    .configurationParameter("junit.jupiter.extensions.autodetection.enabled", "true")
-                    .selectors(selectors)
-                    .execute();
+            // Run the tests twice and judge the second run. The first run loads and JIT-compiles the
+            // target's classes in this JVM, so a breach meant for another check (an E22 test that
+            // asserts nothing) cannot also trip the 20 ms logic budget on a cold start and fire E8.
+            run(selectors);
+            EngineExecutionResults run = run(selectors);
             List<String> failures = run.testEvents().failed().stream()
                     .flatMap(event -> event.getPayload(TestExecutionResult.class).stream())
                     .flatMap(result -> result.getThrowable().stream())
@@ -92,6 +93,13 @@ record Target(String name, JavaClasses classes, List<SourceFile> sources, long t
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    private static EngineExecutionResults run(DiscoverySelector[] selectors) {
+        return EngineTestKit.engine("junit-jupiter")
+                .configurationParameter("junit.jupiter.extensions.autodetection.enabled", "true")
+                .selectors(selectors)
+                .execute();
     }
 
     private static boolean isJupiterTest(JavaClass type) {

@@ -43,6 +43,7 @@ The reference code base kept the history numbers in a separate `history.toml` an
 | `family` | one of `family` or `record` | The principle family the rule comes from (`I1`). | `evans-vernon` (domain-driven design and layering), `wlaschin` (functional domain modelling), `khorikov-shore` (testing and Nullables), `ousterhout` (simplicity and module design), `exact` (determinism, exactness and persistence), `sre` (reliability), `supply-chain`, `governance`, `llm-gates` (model review), `house` (the project's own hygiene) |
 | `record` | one of `family` or `record` | The decision record or concept page the rule rests on (`I1`, `I2`). | a path or record id |
 | `check` | yes | The runner that owns the rule's check (see [Runners](#runners)). For `Q+L`, the runner of the `Q` half; the `L` half is always the model-review runner. | `architecture`, `history`, `inventory`, `supply`, `review`, `meta`, `mutation`, `release`, `report`, `process` |
+| `checks` | when a check exists | The ids of the checks in the check registry that hold the rule (see [self-test-harness.md](self-test-harness.md#2-the-check-registry)), on one line. One rule may need several checks (`A1-layers`, `A1-codec-layer`), and one check may hold several rules (`D1-pure-core` holds `D1`, `D2` and `D12`), so each such row names it. The meta-test compares the field with the registry: every id a row names is a registered check, every registered check is named by at least one row, and every `built`, `partial` or `dormant` row whose `check` is not `meta`, `process` or another runner outside the registry names at least one check. | a list of check ids, e.g. `["D1-pure-core"]` |
 | `status` | yes | How far the check is built (see [Statuses](#statuses-and-dormant-markers)). | `planned`, `dormant`, `partial`, `built`, `review`, `report`, `process` |
 | `dormant_until` | no | The backlog item in which the code the check inspects first appears. While it is set, the check must select nothing. | a backlog item id |
 | `<runner>_dormant_until` | no | The same, for one runner's half of a rule that two runners check (for example `history_dormant_until`, `inventory_dormant_until`, or `replay_dormant_until` for one part of a history check). The runner reads its own key first and falls back to `dormant_until` only when it is the rule's only runner. | a backlog item id |
@@ -80,7 +81,7 @@ The guide names five check runners. The template adds the meta-test and four own
 | `inventory` | the inventory check | the test list, per-test timings, which named tests and shared-suite cases exist and run |
 | `supply` | the supply-chain check | lock files, publish dates, advisories, two clean builds compared by hash |
 | `review` | the model-review runner | the diff, against rubric items, in an isolated checkout |
-| `meta` | the meta-tests among the architecture tests | the rule table against the checks: `F5` (each check selects something unless dormant, and fires on its breach alone), `I1` (each row's fields), `I6` |
+| `meta` | the meta-tests among the architecture tests | the rule table against the check registry, through each row's `checks` field (every named check exists, every check is named); `F5` (each check selects something unless dormant, and fires on its breach alone); `I1` (each row's fields); `I6`. The [Java starter](../examples/java-starter/README.md)'s `MetaTest` does the first two. |
 | `mutation` | a nightly mutation run | surviving mutants (`E34`) |
 | `release` | the release script | the release record (`H9`) |
 | `report` | the nightly report | trends only (`G2`) |
@@ -177,6 +178,8 @@ Files under `[f4].structural` (the context map, the glossary, the policy table) 
 
 Stage budgets are named after their stage (`build = 40`), so the check knows no direction for them and asks for a decision record on any change; in the reference code base, each raise also cited the dated approval. A project that wants the check itself to demand the approval names them `max_build` and so on.
 
+**Before the first commit as a principle file, everything is free.** The direction rules start to bind once the file is committed and listed under `[f4].principle`. Until then, while you set the project up, delete the rows you do not need (the `Import` and `ImportHost` layer rows and the `reimplementation = "whole"` rules of a greenfield project), rename stages and set budgets to your own measurements without approvals. After that commit, removing a row is a loosening, and a new stage budget needs its decision record.
+
 Two consequences of these rules matter in practice. A budget whose stage no longer exists is kept with a comment, because removing it counts as a loosening. A rule that is not checked yet stays `planned`; deleting the row would be a loosening.
 
 ## 7. The limit tables
@@ -237,18 +240,19 @@ message: "B28: command OrderShipped in contexts/orders/contracts reads as a fact
           | instead: name the intent (ShipOrder) | D-0031"
 ```
 
-**5. Plant the breach.** Add `breaches/b28/`, a tiny `Contracts` package (it matches the `Breach` layer row, so no production build sees it) with one command named `LoanRenewed`. Nothing else in it breaks any rule.
+**5. Plant the breach.** Add `breaches/B28-commands-are-intents/` (the folder is named by the check id, which is how the meta-test pairs a breach with its check), a tiny `Contracts` package (it matches the `Breach` layer row, so no production build sees it) with one command named `LoanRenewed`. Nothing else in it breaks any rule.
 
-**6. Run the meta-test** (`F5`). It must show that `B28` fires on `breaches/b28` and on nothing else, that no other rule fires on `breaches/b28`, and that `B28` selects at least one command in the real code. If the project has no commands yet, the selection is empty. Then add `dormant_until = "BL-120"` (the item that adds the first command) and set the status to `dormant`. The meta-test then insists that the selection stays empty until that item lands.
+**6. Run the meta-test** (`F5`). It must show that `B28-commands-are-intents` fires on its breach and on nothing else, that no other check fires on that breach, and that `B28` selects at least one command in the real code. If the project has no commands yet, the selection is empty. Then add `dormant_until = "BL-120"` (the item that adds the first command), set the status to `dormant`, and add the `checks` field as in step 8. The meta-test then insists that the selection stays empty until that item lands.
 
 **7. Run it on the real code.** Zero violations is the stance: rename the offending commands, or, for a real exception, add an `[allow].general` entry with its reason, record, and dated approval, and list `B28` in `[allow].readers`.
 
-**8. Set the status** to `built` (or `partial` with `parts_pending`, if only part of the rule is checked) and commit:
+**8. Set the status** to `built` (or `partial` with `parts_pending`, if only part of the rule is checked), add `checks = ["B28-commands-are-intents"]` to the row (the meta-test now insists that the id is registered and that the registered check is named), and commit:
 
 ```text
 B28: commands are intents, not facts (D-0031)
 
-Check in the architecture tests; breach breaches/b28 (a command named LoanRenewed).
+Check B28-commands-are-intents in the architecture tests; breach
+breaches/B28-commands-are-intents (a command named LoanRenewed).
 ```
 
 If a rubric item covered the same concern before, mark it "now enforced by B28" (`V7`). From here on, lowering `B28`'s status or deleting its row is a loosening that needs a dated approval (`F4`).

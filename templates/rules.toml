@@ -7,7 +7,9 @@
 # - [allow] holds every exception, each with a reason, the decision record it relaxes and a dated approval (F1, I2, I5);
 # - the limit tables ([structure], [supply], [s5], [vision], [spikes], [quarantine], [i2], [f2], [f4], [e33], [range]) hold the numbers and
 #   paths the structure, supply-chain and history checks read;
-# - one [[rule]] row per rule: 157 rows, every one `planned` (or `process`) until its check and planted breach exist (F5).
+# - one [[rule]] row per rule: 157 rows, every one `planned` (or `process`) until its check and planted breach exist (F5). When a check
+#   lands, add `checks = ["<check-id>", ...]` to the row: the ids in the check registry that hold the rule, which the meta-test compares
+#   with the registry (every check is named by some row; every id a row names exists).
 #
 # This is a principle file (F4): it changes only by adding or tightening unless the commit cites a dated approval (`Owner-yes: YYYY-MM-DD`).
 # Adding a rule, a banned word or a layer row is a tightening; removing one, or lowering a rule's status, is a loosening. A new rule takes
@@ -171,10 +173,12 @@ vague = ["Entities", "ValueObjects", "Services", "Factories", "Repositories", "H
 past_irregular = ["Sold", "Bought", "Lost", "Won", "Left", "Paid", "Sent", "Built", "Made", "Began", "Broke", "Kept", "Put", "Set", "Cut", "Hit", "Shot", "Taken", "Given", "Written", "Chosen", "Drawn"]
 
 # B3: the leading parameters a `decide` may take before the command and the state, by simple type name: the closed list of everything a
-# decision may read besides them. The reference lists its rule-set type, its view of the seeded random stream (D2) and its domain date
-# (D13); list your own equivalents and nothing else.
+# decision may read besides them. List your own, by simple type name, and nothing else: typically the kernel's domain date (D13), and,
+# when decisions draw randomness or read a rules section, the kernel's view of the seeded random stream (D2) and that rules type. Empty
+# until the first decider exists; B3 reads it.
 [decider]
-leading = ["Rules", "RandomView", "Date"]
+leading = []
+# leading = ["Date", "RandomView", "Rules"]
 
 # A10: dependency-injection containers, banned everywhere (the Hosts wire the system by passing functions). E1: mocking libraries, banned
 # in every package (tests double with Nullable wrappers, E5). Names as the build file names them; keep the ecosystems you use.
@@ -203,8 +207,9 @@ mocking = [
 # A10: each production package's third-party packages, by package name. A package appears under its one wrapper; its licence and the
 # reason for it are recorded in the commit that adds it (H4). Adding an entry needs a dated approval in the comment above it.
 [packages]
-# Owner-yes: YYYY-MM-DD <tag>: the store's one database driver, behind the OrderStore wrapper only.
-# orderstore = ["rusqlite"]
+# An example, commented out: the store's one database driver, behind its wrapper only (licence and reason in the adopting commit).
+# Owner-yes: YYYY-MM-DD
+# orderstore = ["<group:artifact or package name of the driver>"]
 
 # C4: raw primitives allowed in Domain and Contracts signatures, by full type name. Empty: wrap them in constrained types (C3).
 [primitives]
@@ -243,7 +248,7 @@ quarantine = []          # E30: flaky tests, with `expires`
 readers = []             # I5: the rules whose checks read this table; an entry for a rule not listed here matches nothing and is refused
 # One example entry (I2, I5): uncomment, and add the rule's id to `readers` when its check reads the table.
 # general = [
-#     { rule = "A6", file = "contexts/orders/domain/src/pricing.rs", member = "pricing::rounding", reason = "a mutually recursive pair the language allows inside one package; split when the pricing rules are rewritten", record = "D-0007", owner_yes = "YYYY-MM-DD", review_by = "YYYY-MM-DD" },
+#     { rule = "A6", file = "contexts/orders/domain/<path to the source file>", member = "<the exact type or function>", reason = "a mutually recursive pair the language allows inside one package; split when the pricing rules are rewritten", record = "D-0007", owner_yes = "YYYY-MM-DD", review_by = "YYYY-MM-DD" },
 # ]
 
 # ---------------------------------------------------------------------------------------------------------------------------------------
@@ -320,8 +325,8 @@ approval_folders = ["approvals", "snapshots"]
 # extent (atomic, holistic); applies_to (layers or areas); characteristics and family (I1); check (the runner that owns the check:
 # architecture, history, inventory, supply, review, meta, mutation, release, report, process); reimplementation ("whole" or "clause" for
 # the rules that apply only when reimplementing a reference program); origin = "guide" for the two rules the guide adds; status (planned,
-# dormant, partial, built, review, report, process). Optional, added as the work goes: record, milestone, dormant_until,
-# <runner>_dormant_until, parts_pending.
+# dormant, partial, built, review, report, process). Optional, added as the work goes: checks (the check ids that hold the rule, on one
+# line), record, milestone, dormant_until, <runner>_dormant_until, parts_pending.
 #
 # Rows are in the guide's adoption order (groups F, H, I, A, C, D, G, E, B, M, P, R, S, V), so that adopting from the top follows it.
 # Missing ids (A3, A4, B2, ...) were retired in the reference code base and are not reused.
@@ -628,7 +633,7 @@ title = "Only the import layer knows the legacy format"
 kind = "Q+L"
 cadence = "commit"
 extent = "atomic"
-applies_to = "all but Import"
+applies_to = "every package outside the Import layer (reimplementation only; delete with the Import rows)"
 characteristics = ["evolvability"]
 family = "evans-vernon"
 check = "architecture"
@@ -1726,7 +1731,7 @@ title = "Create and reconstitute are separate"
 kind = "Q"
 cadence = "commit"
 extent = "atomic"
-applies_to = "Domain, Application, Import"
+applies_to = "Domain, Application (and Import, when reimplementing a reference program)"
 characteristics = ["evolvability"]
 family = "evans-vernon"
 check = "architecture"

@@ -15,7 +15,10 @@ fun classesOf(path: String, set: String) =
     rootDir.resolve(path.removePrefix(":").replace(':', '/')).resolve("build/classes/java/$set")
 
 tasks.test {
-    dependsOn(realProjects.map { "$it:classes" }, realProjects.map { "$it:testClasses" }, ":breaches:allBreaches")
+    // Every task whose output the meta-test reads by path, so Gradle orders them (and does not refuse
+    // an implicit dependency): the real projects' classes, and all of :breaches' source sets.
+    dependsOn(realProjects.map { "$it:classes" }, realProjects.map { "$it:testClasses" },
+        ":breaches:allBreaches", ":breaches:classes", ":breaches:testClasses")
     val real = realProjects.flatMap { listOf(classesOf(it, "main"), classesOf(it, "test")) }
     val realSources = realProjects.map { rootDir.resolve(it.removePrefix(":").replace(':', '/')).resolve("src/main/java") }
     inputs.files(real).withPropertyName("realClasses")
@@ -24,4 +27,6 @@ tasks.test {
     systemProperty("starter.real", real.joinToString(File.pathSeparator))
     systemProperty("starter.realSources", realSources.joinToString(File.pathSeparator))
     systemProperty("starter.breaches", rootDir.resolve("breaches").path)
+    inputs.file(rootDir.resolve("standards/rules.toml")).withPropertyName("rules")
+    systemProperty("starter.rules", rootDir.resolve("standards/rules.toml").path)
 }
