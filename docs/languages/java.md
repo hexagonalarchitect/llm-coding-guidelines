@@ -1,8 +1,10 @@
 # Implementing the rules in Java
 
-This page tells an agent working on a Java code base how to build an automated check for every rule in the guide (`README.md` at the repository root) that has one, without the reference Rust code base. It follows the guide's group order (F, H, I, A, C, D, G, E, B, M, P, R, S, V), then covers the shared runners, the planted-breach meta-test and gate speed.
+This page tells an agent working on a Java code base how to build an automated check for every rule in the [guide](../../README.md) that has one, without the reference Rust code base. It follows the guide's group order (F, H, I, A, C, D, G, E, B, M, P, R, S, V), then covers the shared runners, the planted-breach meta-test and gate speed.
 
-**Assumptions.** Java 21 or later. The examples use Java 25 (the current LTS release), and only the unnamed pattern `_` needs Java 22 or later. Gradle with the Kotlin DSL is the main build tool, and Maven equivalents follow each Gradle snippet where they differ. Versions in snippets are placeholders. Pin your own exact versions in the version catalog, each at least 14 days old (`H4`). Where this page is not sure of an exact option name, it says so. Check that option against the tool's documentation for your pinned version before relying on it.
+**The Java starter.** [`examples/java-starter/`](../../examples/java-starter/README.md) is a small, runnable Gradle project that compiles and runs the core of this page: the layers, a decider, a constrained value, a Nullable wrapper, ArchUnit checks with planted breaches and the meta-test, a source scan for `C12`, the counting-assertion and time-budget judges, jqwik, PIT, Error Prone, NullAway and dependency locking. Its `scripts/gate.sh` runs green. Where this page and the starter differ, the starter's code is the one that has been compiled and run; each such place below says what the starter does and when the alternative is worth it. Snippets marked *(not compiled)* were written for this page and have not been built; check them against your pinned tool versions. [docs/quick-start.md](../quick-start.md) walks through the starter step by step.
+
+**Assumptions.** Java 21 or later. The starter uses Java 21, so it names unused pattern bindings (`case Return ignored ->`); the snippets on this page use Java 25 (the current LTS release), where the unnamed pattern `_` (Java 22 or later) replaces them. Gradle with the Kotlin DSL is the main build tool, and Maven equivalents follow each Gradle snippet where they differ. Versions in snippets are placeholders. Pin your own exact versions in the version catalog, each at least 14 days old (`H4`). Where this page is not sure of an exact option name, it says so. Check that option against the tool's documentation for your pinned version before relying on it.
 
 **Status words used below.** **auto** means a tool or test fails the gate. **report** means a tool reports the finding but does not fail the gate, as the rule asks. **review** means the model reviewer or a person holds the rule (each one says why). **process** means a script or routine holds it, and **neutral** means a language-neutral runner that works the same in any language.
 
@@ -25,14 +27,16 @@ Most rules apply to some layers only, such as "in `Kernel` and `Domain`". In Jav
    legacy-import/ , hosts/import/   -> Import, ImportHost (only when reimplementing a reference program)
    hosts/server/                    -> Host
    tests/architecture/ , tests/...  -> Test
-   breaches/**                      -> Breach (a separate Gradle build, never included in settings.gradle.kts)
+   breaches/**                      -> Breach (no production project depends on it; see section 15)
    ```
+
+   The starter uses a flatter version of this shape for one context: `kernel/`, `loans/domain/`, `loans/application/`, `infrastructure/notices/`, `host/`, plus `testing/` (test support), `architecture/` (the checks and the meta-test) and `breaches/`. The paths in [templates/rules.toml](../../templates/rules.toml)'s `gradle` patterns are the ones above; change either to match the other.
 
 2. **One Java package root per project** that mirrors the path, so bytecode-level checks can also select by package: `com.example.kernel`, `com.example.contexts.loans.domain`, `com.example.infrastructure.orderstore`, and so on. (`import` is a Java keyword, so the import layer's package is `com.example.legacyimport`.)
 
-3. **One convention plugin per layer** in an included build (`build-logic/`), such as `lcg.kernel`, `lcg.domain`, `lcg.contracts`, `lcg.codec`, `lcg.application`, `lcg.day`, `lcg.infrastructure`, `lcg.host` and `lcg.test`. Each applies a shared `lcg.java-base` plugin (toolchain, compiler flags, Error Prone, formatter, locking) and then points every per-file tool at that layer's configuration: `config/checkstyle/<layer>.xml`, `config/forbidden/<layer>.txt`, `config/pmd/<layer>.xml`, and the Error Prone check list for that layer. A rule "in `Kernel` and `Domain`" becomes a line in those two layers' configuration files, with no path matching in the check itself.
+3. **One convention plugin per layer** in an included build (`build-logic/`) once the project has more than a handful of projects (the starter, being small, configures every project from one `subprojects {}` block in its root `build.gradle.kts`), such as `lcg.kernel`, `lcg.domain`, `lcg.contracts`, `lcg.codec`, `lcg.application`, `lcg.day`, `lcg.infrastructure`, `lcg.host` and `lcg.test`. Each applies a shared `lcg.java-base` plugin (toolchain, compiler flags, Error Prone, formatter, locking) and then points every per-file tool at that layer's configuration: `config/checkstyle/<layer>.xml`, `config/forbidden/<layer>.txt`, `config/pmd/<layer>.xml`, and the Error Prone check list for that layer. A rule "in `Kernel` and `Domain`" becomes a line in those two layers' configuration files, with no path matching in the check itself.
 
-4. **Architecture tests** live in `tests/architecture`, which depends on every production project (the `Test` row allows `*`). They run ArchUnit over the compiled classes, together with flat text checks over build files. Give every rule a name and reason, such as `.as("A10 ...").because("... see ADR-0012")`, so that a failure names the rule, the offending edge, the allowed alternative and the decision record (`F5`).
+4. **Architecture tests** live in `tests/architecture` (the starter's `architecture/`), which depends on every production project (the `Test` row allows `*`). They run ArchUnit over the compiled classes, together with flat text checks over build files and source. Give every check an id made of its rule id and a short name, and put the id at the start of its failure message, so that a failure names the rule, the offending edge, the allowed alternative and the decision record (`F5`). The starter registers each check under such an id (`A1-layers`, `A10-one-wrapper`, `C12-no-default-arm`) in one registry, `Checks.all()`, and prefixes its ArchUnit rule's description with `[A1-layers]`; the snippets below use ArchUnit's `.as("A10 ...").because("... see ADR-0012")`, which does the same for a rule outside such a registry.
 
 5. **Optionally, use JPMS** (`module-info.java`) in production projects. `requires` makes the compiler enforce the project graph a second time, and `exports` is Java's explicit export list (`C10`).
 
@@ -108,6 +112,8 @@ spotless { java { googleJavaFormat(libs.versions.googleJavaFormat.get()) } }   /
 checkstyle { toolVersion = libs.versions.checkstyle.get(); maxErrors = 0; maxWarnings = Int.MAX_VALUE }
 ```
 
+The starter takes a simpler first step: Error Prone's default checks, which `-Werror` turns into errors, plus NullAway as an error with `option("NullAway:AnnotatedPackages", "starter")` (NullAway 0.12.4 has no `OnlyNullMarked` option). The pinned list above is the stricter form `F1` asks for once the project grows: every kept check is named.
+
 Each layer plugin then adds its own entries to the error list (for example `error("CoreDivision", "CoreArithmetic")` in `lcg.kernel` and `lcg.domain`) and sets `checkstyle.configFile` to its layer's file.
 
 - **`-Xlint:all` includes `processing`.** With annotation processors this group can warn noisily ("No processor claimed any of these annotations"). If you turn it off (`-Xlint:all,-processing`), record that as an `[allow]` entry.
@@ -140,7 +146,7 @@ Keep other ids out of the rule-id shape, as `F3` says. The id scanner (any word-
 | **H4** | The supply runner reads every coordinate in the lockfiles and checks its publish date on Maven Central (14 days or more). The history check requires the licence and reason lines in the commit message. Renovate's `minimumReleaseAge: "14 days"` keeps update proposals in line. | auto (neutral runner) |
 | **H5** | Nightly OWASP dependency-check (`dependencyCheckAnalyze`, `failBuildOnCVSS = 7.0f`) or osv-scanner over the lockfiles. | auto, nightly |
 | **H6** | Archive tasks are reproducible (`isPreserveFileTimestamps = false`, `isReproducibleFileOrder = true`). Each night, two clean clones at different paths run `--offline --no-build-cache` after restore and compare the SHA-256 of every artefact. Under Maven, set `project.build.outputTimestamp` and use `artifact:compare`. | auto, nightly |
-| **H9** | No statement. Implement it when the rule is stated, as a release-time task in the supply runner. | — |
+| **H9** | A release task (supply runner, `on-demand`) refuses a commit without a recorded green full gate, writes a software bill of materials (the CycloneDX Gradle plugin, `org.cyclonedx.bom`, or Maven `cyclonedx-maven-plugin`) beside the SHA-256 of every artefact in `build/distributions`, and records the lockfile diff since the last release tag. The release checklist's questions are judged by a person or the reviewer. | planned |
 
 ```kotlin
 // lcg.java-base (continued)
@@ -158,7 +164,19 @@ tasks.withType<AbstractArchiveTask>().configureEach {
 
 Use these commands to write and restore the lock state:
 
-- `./gradlew dependencies --write-locks` writes the lockfiles. In practice, run `--write-locks` with a task that resolves every configuration.
+- `./gradlew dependencies --write-locks` writes the lockfiles only for the configurations that task resolves. To lock every configuration, the starter registers a task in each project and runs `./gradlew resolveAndLockAll --write-locks`:
+
+  ```kotlin
+  // examples/java-starter/build.gradle.kts, inside subprojects { } (compiled)
+  dependencyLocking { lockAllConfigurations(); lockMode = LockMode.STRICT }
+  tasks.register("resolveAndLockAll") {
+      notCompatibleWithConfigurationCache("resolves configurations at execution time")
+      doFirst { require(gradle.startParameter.isWriteDependencyLocks) { "run with --write-locks" } }
+      doLast { configurations.filter { it.isCanBeResolved }.forEach { it.resolve() } }
+  }
+  ```
+
+  It also locks the plugin classpath with `buildscript { configurations.classpath { resolutionStrategy.activateDependencyLocking() } }` in the root build file, which writes `buildscript-gradle.lockfile`. The starter does not yet use `failOn*` resolution rules, verification metadata or an exact-JDK check.
 - `./gradlew --write-verification-metadata sha256 help` writes the checksum file.
 - The gate never passes `--write-locks`, and a changed lockfile in the gate's working tree fails the gate.
 
@@ -265,7 +283,8 @@ JIT inlining happens at run time and does not affect any of these checks.
 | **A10** | (a) A flat test reads each project's `libs.*` dependencies and compares them with `[packages]` (each third-party library has one wrapper project; layer rows may allow whole layers). (b) ArchUnit backs it up: no class outside `com.example.infrastructure.<wrapper>..` and `hosts` depends on that library's packages. (c) DI containers are banned everywhere. | auto |
 | **A14** | Covered by the A1 test: one `application` project per context, no edges between application or domain projects of different contexts, and only `day` spans contexts. | auto |
 | **A17** | Checkstyle in `application`, `day` and `hosts`: `CyclomaticComplexity` `max=5`, and `IllegalToken` `LITERAL_INSTANCEOF` and `LITERAL_SWITCH` (branch on a kernel `Result` through its `fold` method instead). An invariant evaluated in the shell is left to model review. | auto + review |
-| **A11**, **A13** | No statement. When the rules are stated, add them as ArchUnit or A1-style rules. | — |
+| **A11** | ArchUnit: only the store wrapper (`infrastructure.<store>..`) depends on `java.sql..`, `javax.sql..` or the driver. A narrow test reads every migration and query text and fails on a table name without its context's prefix, or a join or foreign key across two contexts' tables other than the journal. Dormant until the store exists. | auto (dormant) |
+| **A13** | The A1 build-file test: each `plugins/<name>` project references only `kernel` and its own contract project, never another plug-in. A registry test checks that every plug-in project is registered and every registry key has a project. Dormant until the first plug-in exists. | auto (dormant) |
 
 **A1 (b): ArchUnit layers.**
 
@@ -412,9 +431,9 @@ static final ArchCondition<JavaMethod> exposeNoMutableType = new ArchCondition<>
 
 ### C3: constrained values with records
 
-A record's canonical constructor must be at least as accessible as the record, so **a public record cannot hide its constructor**. There are two workable shapes.
+A record's canonical constructor must be at least as accessible as the record, so **a public record cannot hide its constructor**. There are two workable shapes. The starter uses the second, a final class with a private constructor, because it hides the representation with no check at all; the first keeps the record's generated members at the price of an ArchUnit rule.
 
-**Shape 1 (preferred): a record whose constructor only `create` may call, enforced by ArchUnit.**
+**Shape 1: a record whose constructor only `create` may call, enforced by ArchUnit** *(not compiled)*.
 
 ```java
 /** Loan duration in days, 1..Rules.MAX_LOAN_DAYS (C3). Build it with create; value() returns the raw count. */
@@ -459,7 +478,32 @@ Add three more rules:
 
 Reflection and serialisation could bypass the constructor rule. Reflection is banned by forbidden-apis `jdk-reflection`, and reflection-driven serialisers are banned in core by `P2`.
 
-**Shape 2: a final class with a private constructor.** This gives true hiding without a check. The cost is hand-written `equals`, `hashCode` and `toString`, which `B9` counts as custom equality (an `[allow].custom_equality` entry plus law properties). Use it when the representation must stay hidden from reflection-free callers as well. To forbid public constructors on non-record classes: `constructors().that().areDeclaredInClassesThat().implement(Constrained.class).and().areDeclaredInClassesThat().areNotRecords().should().bePrivate()`. (`areNotRecords()` exists in ArchUnit 1.x; on older versions, test `JavaClass.isRecord()` in a custom predicate.)
+**Shape 2: a final class with a private constructor** (the starter's [`LoanDays`](../../examples/java-starter/loans/domain/src/main/java/starter/loans/domain/LoanDays.java), compiled). This gives true hiding without a check:
+
+```java
+public final class LoanDays implements Comparable<LoanDays> {
+    /** Why a raw day count is not a legal LoanDays. */
+    public enum Invalid { BELOW_MINIMUM, ABOVE_MAXIMUM }
+
+    private final int days;
+
+    private LoanDays(int days) { this.days = days; }
+
+    /** Validates a raw day count: the value, or why it was refused. */
+    public static Result<LoanDays, Invalid> create(int raw) {
+        if (raw < LoanRules.MIN_LOAN_DAYS) return Result.err(Invalid.BELOW_MINIMUM);
+        if (raw > LoanRules.MAX_LOAN_DAYS) return Result.err(Invalid.ABOVE_MAXIMUM);
+        return Result.ok(new LoanDays(raw));
+    }
+
+    /** The validated day count. */
+    public int value() { return days; }
+
+    // compareTo, equals, hashCode and toString written by hand (abridged)
+}
+```
+
+The starter's property `loanDaysAcceptsExactlyTheLegalRange` is the boundary property `C3` asks for. The cost is hand-written `equals`, `hashCode` and `toString`, which `B9` counts as custom equality (an `[allow].custom_equality` entry plus law properties, which the starter does not have yet). Use it when the representation must stay hidden from reflection-free callers as well. To forbid public constructors on non-record classes: `constructors().that().areDeclaredInClassesThat().implement(Constrained.class).and().areDeclaredInClassesThat().areNotRecords().should().bePrivate()`. (`areNotRecords()` exists in ArchUnit 1.x; on older versions, test `JavaClass.isRecord()` in a custom predicate.)
 
 ### C6: partial operations and totality
 
@@ -510,7 +554,7 @@ Sum types are sealed interfaces of records (or enums for plain cases). Exhaustiv
 - A **switch statement with patterns** (Java 21 or later) is exhaustive by the language specification.
 - An old-style **switch statement over an enum** is *not* checked. Write enum switches as switch expressions, and keep Error Prone `MissingCasesInEnumSwitch` as a backstop.
 
-What javac cannot do is reject a `default` that hides a future case. In the core layers' Checkstyle configuration, ban it flatly:
+What javac cannot do is reject a `default` that hides a future case. The starter bans it with a flat source scan, `C12-no-default-arm` (compiled, with its planted breach): it reads every source file whose package is in the kernel, domain or application, blanks comments and string literals, and fails on `default ->` or `default:`. A source scan is needed because the compiled class does not show whether the source had a `default` arm. With Checkstyle, the same ban is one module in the core layers' configuration *(not compiled)*:
 
 ```xml
 <module name="MatchXpath">
@@ -536,11 +580,12 @@ In core layers you switch only on your own types (C4 bans raw primitives in sign
 | **D3** | Checkstyle `IllegalToken` `LITERAL_FLOAT`, `LITERAL_DOUBLE`, `NUM_FLOAT`, `NUM_DOUBLE` in `kernel` and `domain`. ArchUnit bans dependencies on `Float`, `Double`, `java.lang.Math`, `StrictMath` and `BigDecimal` there. Integer `Math` operations go through kernel wrappers. | auto |
 | **D4** | Ported programs only. Checkstyle `IllegalToken` `TYPECAST`, `LITERAL_SHORT` and `LITERAL_BYTE` outside `kernel`. Each kernel wrapper has jqwik properties against a `long`-widened reference. javac knows every type, so a house Error Prone check can see type-inferred narrowing too. The Rust `L` part becomes **auto** in Java. | auto |
 | **D5** | Checkstyle `IllegalToken` `STRING_LITERAL` and `TEXT_BLOCK_LITERAL_BEGIN` in `kernel`, `domain` and `contracts`, suppressed only for the one listed `TextKeys` file that mirrors `[text].keys`. A test compares that file with `[text].keys`. | auto |
-| **D8** | Review: whether a type stands for "the human user" is a question of meaning. A word list (`User`, `Player`, `Me`, `Human`) can help, as a `report`-mode ArchUnit name rule. | review |
+| **D8** | Review: whether a type stands for "the human user" is a question of meaning. A word list (`User`, `Me`, `Human`, `Operator`) can help, as a `report`-mode ArchUnit name rule. | review |
 | **D11** | ArchUnit: classes named `*View` or `*Projection` (or implementing the kernel `View` marker) in `contracts` and `application` depend on nothing from the D2 list and have only `final` fields. Their public methods do not call methods named `set*`, `put*`, `add*`, `remove*` or `clear` on anything. | auto |
 | **D12** | forbidden-apis and ArchUnit ban `HashMap`, `HashSet`, `LinkedHashMap`, `LinkedHashSet`, `Hashtable`, `IdentityHashMap`, `WeakHashMap`, `ConcurrentHashMap`, **`Set.of`, `Set.copyOf`, `Map.of`, `Map.ofEntries`, `Map.copyOf`**, `Collectors#toSet`, `Collectors#toMap`, `Collectors#groupingBy`, `Collectors#toUnmodifiableSet` and `Collectors#toUnmodifiableMap`. `hashCode` calls are banned as under D2. | auto |
 | **D13** | ArchUnit: no `java.time.Instant`, `Clock`, `LocalDateTime` or `ZonedDateTime` in any `domain` or `application` signature. The core uses the kernel `Date`. The `infrastructure/clock` wrapper exposes `WallInstant` (from `Instant.now()`) and `Elapsed` (from `System.nanoTime()`) as distinct records. | auto |
-| **D9**, **D10** | No statement. Leave them dormant. | — |
+| **D9** | Optional (see the guide). Once "engine" is defined for the project: ArchUnit, each engine project's packages may read the core entity only through a mapping class it owns, and no component of the core entity record is read by only one engine (a report from `getAccessesToSelf()`); the rest is review. | review (optional) |
+| **D10** | Reimplementations only. The inventory runner checks that each component listed in the component table has its contract page (`docs/components/<name>.md`) with inputs, outputs, random draws and reference routines. Whether a component reads only its declared inputs is review, helped by an ArchUnit report of the classes each component's package accesses. | auto + review (dormant) |
 
 **Why D12 bans `Set.of` and `Map.of`.** The immutable collections from `Set.of(...)` and `Map.of(...)` iterate in an order that is deliberately salted **per JVM run**, so the same program gives a different order on the next start. `HashMap` order depends on `hashCode`, which for enums and plain objects is an identity hash that differs between runs. Neither belongs in a deterministic core.
 
@@ -601,7 +646,7 @@ Kernel's seeded random service has to implement its own generator (for example S
 | **G11** | ArchUnit custom conditions on public methods and constructors of production classes (record canonical constructors excepted): at most 4 parameters; not 3 or more parameters of the same primitive or `String` type (`create` excepted). In `domain`, `contracts` and `application`, no `boolean`, `Boolean`, `Map.Entry` or tuple-library type (`org.apache.commons.lang3.tuple..`, `org.javatuples..`) in public signatures. In `infrastructure`, no tuple types. | auto |
 | **G12** | javac `-Xdoclint:all/protected` in core layers (missing comments become warnings and then errors under `-Werror`). Checkstyle `MissingJavadocType`, `MissingJavadocMethod` (`scope=public`, `allowMissingPropertyJavadoc=false`) and `JavadocVariable` for public fields. Document record components with `@param` tags in the record's comment, which doclint checks. | auto |
 | **G13** | Review: the design rubric judges depth and purpose. The pass-through ratio (the share of workflows that only forward their arguments, flagged above 20 percent) can be a `report`-mode ArchUnit helper that counts `run` methods whose body makes exactly one call. | review (+ report) |
-| **G2** | No statement. A nightly structure report can come from ArchUnit (package graph) and Checkstyle metrics. | — |
+| **G2** | A nightly report, never a gate: instability and distance from the main sequence per project from the ArchUnit package graph (abstractness by role), cohesion per class (PMD `LooseCoupling` and a JavaParser count of public methods sharing domain types), duplicated token runs (PMD CPD), commits touching more than three contexts (`git log --name-only`), and `G4`'s small indicators. | report |
 
 **Nesting depth.** No stock Java check measures general nesting depth across `if`, `for`, `while`, `switch`, `try` and lambdas together. The three Checkstyle checks count each statement kind separately (`max` counts nesting *beyond* the first level, so `max=3` allows depth 4). For one combined measure, write a small JavaParser test over `src/main/java` that walks statement nodes and fails beyond depth 4.
 
@@ -662,7 +707,7 @@ Scenario, narrow, smoke and architecture tiers are further suites (`register<Jvm
 | **E2** | ArchUnit over production classes: no dependency on `org.junit..`, jqwik or assertion libraries, no member annotated `VisibleForTesting` (Guava's annotation has CLASS retention, which ArchUnit still reads), and no member named `*ForTest*` or `*ForTesting*`. forbidden-apis `jdk-reflection` in tests (`setAccessible`). Production code may not read `System.getProperty` or `getenv` outside `hosts`. Because tests in the same package can call package-private members, an ArchUnit condition over test classes fails any access to a non-public member of a production class. JPMS: no qualified `exports ... to` or `opens` towards test modules. | auto |
 | **E3** | One suite per tier. ArchUnit over test classes, scoped by suite: logic tests depend only on their context's `domain` and `contracts`, `kernel`, upstream `contracts`, `tests/builders` and test libraries. Scenario tests enter through `application` with `createNull` wrappers. Only the `narrowTest` suite may touch `java.io`, `java.nio.file`, `java.net`, `ProcessBuilder`, `Thread.sleep` or a wrapper's `create`. | auto |
 | **E5** | ArchUnit over each public class in `infrastructure` and each `application` service with infrastructure below it: `public static T create(...)` and `public static T createNull(...)` exist; `createNull`'s parameters are not third-party types; a zero-argument `createNull()` exists (Java has no optional parameters, so the zero-argument overload is the required form, with others taking a `NullConfig` record). Neither factory calls a third-party class directly (inspect `getMethodCallsFromSelf()`). Writers expose `outputs()` returning `Seq` of a sealed behaviour type, never `String` or a primitive. Loud exhaustion and event simulation are proved by each wrapper's contract tests (E17). | auto |
-| **E8** | Per-test budgets by tier through in-process timing plus a judge over JUnit XML, the stage wall-time ratchet, the 10 slowest tests, and an untagged slow test failing the gate. See below. | auto |
+| **E8** | Per-test budgets by tier: the starter's `TimeBudget` extension fails a test whose body exceeds its tier's budget, read from its tag. A judge over JUnit XML adds the 10 slowest tests and the stage wall-time ratchet. See below. | auto |
 | **E9** | ArchUnit: only scenario-suite test classes call `outputs()` on wrappers, and only for wrappers listed as unmanaged in the dependency table. The expected list must be a literal or golden file, never production encoder output, which is review. Keep it dormant until writers exist. | auto (+ review) |
 | **E10** | jqwik. ArchUnit over test classes requires, for each `@AggregateRoot`, a class `<Aggregate>Properties` with the named properties. Seeds and failure examples are described below. | auto |
 | **E11** | ArchUnit on test methods: names do not start with `should`, do not match `^[a-z]+_[A-Za-z]+_[A-Za-z]+$`, and contain no public method name of the class under test. Each test method calls `decide`, `handle` or `run` exactly once, counted through `getMethodCallsFromSelf()`. Calls inside lambdas compile into synthetic methods, so include the test's synthetic `lambda$` methods in the count. Smoke tests are excepted. Domain phrasing is review. | auto + review |
@@ -672,16 +717,19 @@ Scenario, narrow, smoke and architecture tiers are further suites (`register<Jvm
 | **E16** | ArchUnit over test classes outside `tests/builders`: no call to the constructor of a `domain`, `kernel` or `contracts` record, except single-component records. Builders read in domain language, which is review. | auto + review |
 | **E17** | Each wrapper with a third-party dependency has one JUnit **test interface** `<Wrapper>Contract` with `@Test default` methods and an abstract `subject()` factory. Two classes implement it: `<Wrapper>NullTest` in the fast tier (`createNull`) and `<Wrapper>RealTest` in `narrowTest` (`create`). Identical test names follow by construction. ArchUnit requires both implementations, in those suites, and requires each narrow test class to reference exactly one wrapper. | auto |
 | **E21** | Each wrapper's sealed error type lists its failure modes. ArchUnit checks that public wrapper methods return `Result<?, <Wrapper>Error>`. A test checks that, for each permitted subtype of the error, the contract interface has a test method whose name contains the case name and which configures it through `createNull`. Hangs are timed out on `System.nanoTime()` (`Elapsed`), never on wall-clock time. Health-report counts and user notices by text key are review. | auto (+ review) |
-| **E22** | The counting `Check` parameter, a Jupiter extension that fails tests with no assertion, an ArchUnit ban on direct assertion APIs, a house Error Prone tautology check, and bans on `@Disabled` and `Assumptions`. See below. | auto |
+| **E22** | The counting `Expect` parameter and the `CountedAssertions` extension that fails a test with no counted assertion (both in the starter), an ArchUnit ban on direct assertion APIs (the starter's `E22-counted-assertions`), a house Error Prone tautology check, and bans on `@Disabled` and `Assumptions`. See below. | auto |
 | **E23** | History check: for a commit marked as a refactoring, map changed lines in `src/test/java` to `@Test` method bodies (JavaParser gives each method's line range) and fail on any change other than a rename forced by the compiler. Detect renames by comparing token streams with identifiers normalised. | auto |
-| **E25** | The house Error Prone check `ExpectedLeak`: in a `check.equal(expected, actual)` call, the two arguments may not call the same production method, and may not be the same source text (`state.getSourceForNode`). Local variables, operator chains and helpers are review. Collaborator-based isolation is already banned by E1. | auto + review |
+| **E25** | The house Error Prone check `ExpectedLeak`: in an `expect.equal(expected, actual)` call, the two arguments may not call the same production method, and may not be the same source text (`state.getSourceForNode`). Local variables, operator chains and helpers are review. Collaborator-based isolation is already banned by E1. | auto + review |
 | **E26** | `@Tag("smoke")` on 1 to 3 tests in a `smokeTest` suite. The inventory runner puts them in the gate when their total is 10 s or less, otherwise in the nightly run. ArchUnit (or a test) checks that, together, smoke test call paths reach every wrapper's `create`, using the transitive call graph from `getMethodCallsFromSelf()`. | auto (dormant until hosts exist) |
 | **E30** | `@Tag("quarantine")`, excluded from the gate. A test checks that each quarantined test has an allow entry with a reason, a dated approval and an expiry of at most 7 days. Quarantined counts go into the `R1` flaky indicator. | auto |
 | **E31** | A gate test runs the same seed and commands twice in one JVM and compares a SHA-256 of the canonical encoding, including the two-order variant. The nightly run replays a golden journal in two fresh JVMs: one with `-XX:ActiveProcessorCount=1` and `-Djava.util.concurrent.ForkJoinPool.common.parallelism=1`, and one with default parallelism, plus a CI matrix job on a second OS. The static proxy is D12's ban, extended to `application`, `day` and `codec`. | auto (+ nightly) |
 | **E33** | ApprovalTests.Java (or similar): `*.received.*` is in `.gitignore`, and the history check rejects committed received files and approved files that changed without approval. ArchUnit bans `org.approvaltests.reporters.AutoApproveReporter` and similar auto-approving reporters. The scrubber has a test that renders the same output under two kernel clock values. | auto |
 | **E36** | A JUnit `@TestFactory` that turns each case file of `spec/` into a `DynamicTest` named `spec/<case>`. The inventory runner reads the JUnit XML and fails on any case file that no test of that name ran. | auto |
+| **E15** | Reimplementations only. One exact-comparison test project depends on the reference (the only project `A5` allows to). A JaCoCo report of the reference's routines (when the reference runs on the JVM) or the reference's own coverage tool, over the recorded cases, must reach every reachable branch of each component, with exceptions listed with reasons. The gate runs the recordings and a few hundred jqwik differential properties for touched components; the nightly run covers all. | auto (dormant) |
 | **E37** | Comparing tests assert a `Counts` record (`proven`, `compared` per check, `owed` per item, and a count per label) against a literal. Any change in a count, or a missing or unknown kind, fails the test. Treat it as process, with an optional ArchUnit check that every `@TestFactory` or comparing test calls `Counts.pin(...)`. | process (+ auto) |
-| **E15**, **E32**, **E34**, **E35** | No statement. E34 (the mutation ratchet) maps directly onto PIT (see below). E32 maps onto a jqwik stateful property over many seeds in the nightly run. | — |
+| **E32** | A nightly jqwik stateful property (`ActionChain`) over 1,000 or more seeds, with Nullable wrappers whose `createNull` options inject faults by seeded draws and with per-run fault rates (swarm testing). It checks `B18`'s invariants after every step, uses `Statistics.coverage` to require each listed rare state and fault at least once a night, and appends each failing seed and command list to a protected corpus that a gate test replays. | auto (dormant, nightly) |
+| **E34** | PIT, nightly, over `kernel` and `domain`: a judge counts `SURVIVED` in `mutations.xml` per project against a committed count that may not rise, and each equivalent mutant is an `[allow]` entry. No percentage threshold (see below). | auto (planned, nightly) |
+| **E35** | Narrow tests of the store wrapper: each opens a fresh database in a temporary directory in its arrange step and reads back through a second wrapper instance. ArchUnit bans an in-memory engine standing in for the real one (for example H2 or HSQLDB in a project that ships SQLite) and any assertion on query text. Dormant until the store exists. | auto (dormant) |
 
 ### E1 and E5: Nullable wrappers instead of Mockito
 
@@ -753,10 +801,33 @@ The JVM changes how per-test budgets behave:
 - **Gradle's JUnit XML `time`** for a test includes its `@BeforeEach` and extension overhead, and the first test of a class also pays for loading that class.
 - **Garbage collection pauses** add noise.
 
-Measure in-process, warm the JVM up, and judge after the run, instead of hard timeouts that interrupt the test:
+Measure in-process, on the test body only, never with a hard timeout that interrupts the test.
+
+**What the starter does** ([`TimeBudget`](../../examples/java-starter/testing/src/main/java/starter/testing/TimeBudget.java), compiled): one Jupiter `InvocationInterceptor`, switched on for every test by service-loader autodetection (`junit.jupiter.extensions.autodetection.enabled=true` in `testing/src/main/resources/junit-platform.properties`), times the test body with `System.nanoTime()` and fails the test at once if it is over its tier's budget. The tier comes from the test's tag: untagged is logic (20 ms), `@Tag("scenario")` 200 ms, `@Tag("architecture")` 10 s, and `@Tag("nightly")` is not judged. Its failure message starts with its check id, `[E8-time-budget]`, which is how the meta-test proves it against its breach (an untagged test that sleeps 60 ms). Under PIT it is switched off with `-Dstarter.budgets=off`, because instrumented code is slow by design.
+
+```java
+public final class TimeBudget implements InvocationInterceptor {
+    public static final String CHECK_ID = "E8-time-budget";
+
+    @Override
+    public void interceptTestMethod(Invocation<Void> invocation, ReflectiveInvocationContext<Method> call,
+            ExtensionContext context) throws Throwable {
+        long start = System.nanoTime();
+        invocation.proceed();
+        Duration took = Duration.ofNanos(System.nanoTime() - start);
+        Duration budget = budget(context.getTags());          // by tag, as above
+        if (!"off".equals(System.getProperty("starter.budgets")) && took.compareTo(budget) > 0) {
+            throw new AssertionFailedError("[" + CHECK_ID + "] " + context.getDisplayName() + " took "
+                    + took.toMillis() + " ms, over its " + budget.toMillis() + " ms budget. ...");
+        }
+    }
+}
+```
+
+That is enough to start. As the suite grows, add the parts the starter does not have *(not compiled)*: judge after the run instead of failing in the test, so the gate can print the 10 slowest tests and each stage against its budget, and warm the JVM up first:
 
 1. **A warm-up `LauncherSessionListener`** (JUnit 5.8 or later, registered in `META-INF/services/org.junit.platform.launcher.LauncherSessionListener`) runs once per fork before any test. It loads the kernel and domain classes and runs a canned `decide`/`evolve` sequence a few hundred times. Keep it under its own small budget, because it counts in the stage time.
-2. **A timing extension** measures only the test method body, with the monotonic clock:
+2. **A timing extension** that records instead of failing, measuring only the test method body with the monotonic clock:
 
    ```java
    /** Records each test body's elapsed time for the inventory judge (E8). */
@@ -781,31 +852,27 @@ JUnit's own `junit.jupiter.execution.timeout.default` (for example `"200 ms"`) i
 
 ### E10: jqwik properties, fixed seeds in the gate and fresh seeds at night
 
-jqwik annotation values must be compile-time constants, so one property cannot switch seeds by environment. Write each property body once and give it two thin entry points:
+jqwik annotation values must be compile-time constants, so one property cannot switch seeds by environment. The starter's properties ([`LoanProperties`](../../examples/java-starter/loans/domain/src/test/java/starter/loans/domain/LoanProperties.java), compiled) run the gate's fixed seed and return their verdict as a `boolean`, which is jqwik's own assertion:
 
 ```java
 class LoanProperties {
-  private static final String GATE_SEED = "20261107";
+    private static final String SEED = "20261107";
 
-  @Property(tries = 200, seed = GATE_SEED)
-  void decideIsDeterministic(@ForAll("commands") LoanCommand command, @ForAll("states") LoanState state) {
-    decideIsDeterministicBody(command, state);
-  }
+    @Property(seed = SEED, tries = 200)
+    boolean decideIsDeterministic(
+            @ForAll("dates") LocalDate today, @ForAll("commands") Loan.Command command, @ForAll("states") Loan.State state) {
+        return Loan.decide(today, command, state).equals(Loan.decide(today, command, state));
+    }
 
-  @Property(tries = 5_000) @net.jqwik.api.Tag("nightly")       // fresh random seed each night
-  void decideIsDeterministicNightly(@ForAll("commands") LoanCommand command, @ForAll("states") LoanState state) {
-    decideIsDeterministicBody(command, state);
-  }
-
-  private void decideIsDeterministicBody(LoanCommand command, LoanState state) {
-    Check check = Check.forProperty();
-    check.equal(Loan.decide(TODAY, command, state), Loan.decide(TODAY, command, state));
-    check.done();
-  }
-
-  @Provide Arbitrary<LoanCommand> commands() { /* built from the builders' arbitraries */ }
+    @Provide
+    Arbitrary<Loan.Command> commands() {
+        return Arbitraries.oneOf(days().map(Loan.Renew::new), Arbitraries.just(new Loan.Return()));
+    }
+    // dates(), states(), days() and the other properties: see the file
 }
 ```
+
+For the nightly run with fresh seeds, write each property body once as a private method and give it a second thin entry point with no `seed` and more tries, tagged `nightly` (jqwik's `@net.jqwik.api.Tag`) and excluded from the gate *(not compiled)*. A boolean property is not seen by the starter's counting-assertion judge, which runs on Jupiter only; to count jqwik assertions, implement the judge as a jqwik `AroundTryHook` as well.
 
 - **Failures.** jqwik prints the failing seed and the shrunk sample. The nightly job turns each failure into an `@Example` method (jqwik's plain test) named for the behaviour and holding the shrunk values. Set `jqwik.failures.after.default = PREVIOUS_SEED` in `src/test/resources/jqwik.properties`, so a local re-run tries the failing seed first.
 - **Stateful properties** use `net.jqwik.api.state.ActionChain` (jqwik 1.7 or later).
@@ -814,55 +881,65 @@ class LoanProperties {
 
 ### E22: counting assertions in JUnit 5
 
-Pass a `Check` into each test as a parameter, so there is no static or thread-local state for `E13` to object to:
+Pass the counting object into each test as a parameter, so there is no static or thread-local state for `E13` to object to. The starter calls it `Expect` (a name that does not clash with the harness's `Check` type) and has the extension fail the test straight after its body returns ([`Expect`](../../examples/java-starter/testing/src/main/java/starter/testing/Expect.java) and [`CountedAssertions`](../../examples/java-starter/testing/src/main/java/starter/testing/CountedAssertions.java), compiled; comments abridged):
 
 ```java
-/** The one assertion API tests may use; counts what it checks (E22). */
-public final class Check {
-  private int count;
-  /** Asserts equality and counts one assertion. */
-  public <T> void equal(T expected, T actual) {
-    count++;
-    if (!Objects.equals(expected, actual))
-      throw new AssertionFailedError("expected <" + expected + "> but was <" + actual + ">", expected, actual);
-  }
-  int count() { return count; }
+/** The counting assertion module (E22): tests assert only through it. */
+public final class Expect {
+    private int count;
 
-  /** A Check for code the extension does not see (jqwik properties, dynamic tests); end it with done(). */
-  public static Check forProperty() { return new Check(); }
+    Expect() {}
 
-  /** Fails when nothing was asserted; the counterpart of the extension's afterEach. */
-  public void done() {
-    if (count == 0) throw new AssertionFailedError("E22: no assertion made through Check");
-  }
+    /** Asserts that a claim holds. */
+    public void that(boolean condition, String claim) {
+        count++;
+        if (!condition) throw new AssertionFailedError("expected that " + claim);
+    }
+
+    /** Asserts that two values are equal. */
+    public <T> void equal(T expected, T actual) {
+        count++;
+        if (!Objects.equals(expected, actual))
+            throw new AssertionFailedError("expected " + expected + " but was " + actual, expected, actual);
+    }
+
+    int count() { return count; }
 }
 
-/** Resolves Check parameters and fails any test that made no assertion through it (E22). */
-public final class CheckExtension implements ParameterResolver, AfterEachCallback {
-  private static final ExtensionContext.Namespace NS = ExtensionContext.Namespace.create(CheckExtension.class);
+/** Judge for E22: hands each test an Expect and fails a test that counted no assertion. */
+public final class CountedAssertions implements ParameterResolver, InvocationInterceptor {
+    public static final String CHECK_ID = "E22-asserts-something";
+    private static final ExtensionContext.Namespace NAMESPACE = ExtensionContext.Namespace.create(CHECK_ID);
 
-  @Override public boolean supportsParameter(ParameterContext p, ExtensionContext e) { return p.getParameter().getType() == Check.class; }
-  @Override public Object resolveParameter(ParameterContext p, ExtensionContext e) {
-    return e.getStore(NS).getOrComputeIfAbsent("check", k -> new Check(), Check.class);
-  }
-  @Override public void afterEach(ExtensionContext e) {
-    Check check = e.getStore(NS).get("check", Check.class);
-    if (check == null || check.count() == 0)
-      throw new AssertionFailedError("E22: " + e.getDisplayName() + " made no assertion through Check");
-  }
+    @Override public boolean supportsParameter(ParameterContext parameter, ExtensionContext context) {
+        return parameter.getParameter().getType() == Expect.class;
+    }
+
+    @Override public Object resolveParameter(ParameterContext parameter, ExtensionContext context) {
+        return context.getStore(NAMESPACE).getOrComputeIfAbsent(Expect.class, k -> new Expect(), Expect.class);
+    }
+
+    @Override public void interceptTestMethod(Invocation<Void> invocation,
+            ReflectiveInvocationContext<Method> call, ExtensionContext context) throws Throwable {
+        invocation.proceed();
+        Expect expect = context.getStore(NAMESPACE).get(Expect.class, Expect.class);
+        if (expect == null || expect.count() == 0)
+            throw new AssertionFailedError("[" + CHECK_ID + "] " + context.getDisplayName()
+                    + " asserted nothing. Take an Expect parameter and assert through it.");
+    }
 }
 ```
 
-Register the extension globally (autodetection as above). An exception thrown in `afterEach` marks the test failed, even when its body passed. The extension needs three adjustments:
+Both judges are listed in `META-INF/services/org.junit.jupiter.api.extension.Extension` of the `testing` project, which every project's tests depend on, so no test can opt out by forgetting an annotation. A test that never asks for an `Expect` fails too. An `afterEach` callback works as well; the interceptor has the advantage that it judges only the test body. Three cases need more than the starter has:
 
-- **`@TestFactory` methods** (E36) produce dynamic tests that receive no parameters. Exempt the factory method itself (check `e.getRequiredTestMethod()` for the annotation), and have each `DynamicTest` executable create its own `Check` and call `check.done()`, which throws when the count is zero.
-- **jqwik properties** run on jqwik's engine and need a `Check.forProperty()` and `done()` pair as shown above, or a jqwik `ResolveParameterHook` plus `AroundTryHook` doing the same as the extension.
+- **`@TestFactory` methods** (E36) produce dynamic tests that receive no parameters. Exempt the factory method itself, and have each `DynamicTest` executable create its own `Expect` and check its count at the end.
+- **jqwik properties** run on jqwik's engine, so Jupiter extensions do not see them. The starter's properties return a `boolean`, which is jqwik's own assertion; to count them, add a jqwik `ResolveParameterHook` plus `AroundTryHook` that do what the extension does *(not compiled)*.
 - **Newer JUnit versions** (5.13 and later) add `computeIfAbsent` and may deprecate `getOrComputeIfAbsent`. Use whichever your pinned version offers.
 
 The rest of E22:
 
-- **No direct assertions.** ArchUnit over test classes outside the `check` package bans `org.junit.jupiter.api.Assertions`, `org.junit.Assert`, `org.assertj..`, `org.hamcrest..` and `com.google.common.truth..`. Checkstyle `IllegalToken` `LITERAL_ASSERT` bans Java `assert` statements in tests.
-- **Tautologies.** A house Error Prone check flags `check.equal(x, x)` (the same source text, or the same constant on both sides) and two literals on both sides. The same check serves E25.
+- **No direct assertions.** ArchUnit over test classes bans `org.junit.jupiter.api.Assertions`, `org.junit.Assert`, `org.assertj..`, `org.hamcrest..` and `com.google.common.truth..`. The starter's `E22-counted-assertions` check selects test classes by their `@Test` or `@Property` methods and bans the first four. Checkstyle `IllegalToken` `LITERAL_ASSERT` bans Java `assert` statements in tests.
+- **Tautologies.** A house Error Prone check flags `expect.equal(x, x)` (the same source text, or the same constant on both sides) and two literals on both sides. The same check serves E25.
 - **No focused or pending tests.** JUnit 5 has no "focus" annotation. Pending means `@Disabled`, the `@DisabledIf*` and `@EnabledIf*` conditions, and `Assumptions` (assume calls skip a test silently). ArchUnit bans them on the main line. As a backstop, set `junit.jupiter.conditions.deactivate=*` in `junit-platform.properties`, which makes every `@Disabled`-style condition ineffective. A flat check rejects `--tests` filters and `filter {}` blocks in CI scripts and build files.
 
 ### E13: order, time and repetition (nightly)
@@ -893,7 +970,7 @@ pitest {
 }
 ```
 
-- **Mutation runs.** Run `pitest` nightly on core projects. A judge counts `status="SURVIVED"` in `build/reports/pitest/mutations.xml` and keeps a ratchet: the surviving count per project may not rise. `mutationThreshold` is a percentage target, which `E14` forbids as a goal, so leave it unset and gate only on the ratchet.
+- **Mutation runs.** Run `pitest` nightly on core projects. A judge counts `status="SURVIVED"` in `build/reports/pitest/mutations.xml` and keeps a ratchet: the surviving count per project may not rise. `mutationThreshold` is a percentage target, which `E14` forbids as a goal, so gate only on the ratchet. The starter runs PIT on its domain inside `check` (18 mutants, all killed, in about 2 s) with `mutationThreshold = 90` as a stop-gap floor while it has no ratchet; replace it with the ratchet when the nightly run exists.
 - **Changed lines.** For `B27` (surviving mutants on a core merge's changed lines), filter the XML by the diff's files and line numbers. Under Maven, `pitest-maven:scmMutationCoverage` mutates only changed files.
 - **Incremental analysis** (`historyInputLocation` and `historyOutputLocation`) speeds up repeated runs.
 - **Hand mutants** remain process until the ratchet runs.
@@ -924,52 +1001,66 @@ pitest {
 | **B24** | History check: a commit touching `kernel/` runs `./gradlew check` (the full gate). A change to `api/kernel.api` is flagged for review. | auto + report |
 | **B26** | History check (neutral): the vision file's word count, banned technology words and decision citation. | neutral |
 | **B27** | History check, dormant until core contexts exist: properties exist before first merge (E10), plus the core's JaCoCo ratchet and PIT survivors on changed lines (E14). | auto (dormant) |
-| **B19**–**B21**, **B25** | No statement. B25 (aggregate size) can become a nightly report counting each root's state components and event cases. | — |
+| **B19** | ArchUnit name rule in `domain` and `application`: no method or class name starting `getOrCreate`, `findOrCreate` or `ensure`. ArchUnit: no `decide` reaches an id generator (`UUID`, a counter); new ids arrive in the command. The import clauses are review. | auto (dormant) |
+| **B20** | A test reads the committed policy table (`standards/policies.toml`) and the classes annotated `@Policy` in `application`: every policy is listed and every listed policy exists. Each policy has a jqwik property that feeds it a duplicated event and expects no change. Whose job a reaction is, is review. | auto + review (dormant) |
+| **B21** | ArchUnit, for classes annotated `@ProcessManager`: one `react(<State>, <Input>)` returning a named reaction record (next state and commands, no tuple), its own id type, other aggregates held by id only (as `B5`), and no `java.time` access. Its property list (as `E10`) names "duplicates change nothing" and "a finished process is terminal". | auto (dormant) |
+| **B25** | A nightly report counts collection-typed components (kernel `Seq`, `SortedMapOf`, `SortedSetOf`) per root state record, against `[structure].max_aggregate_collections` once set, and a size-budget property over a long simulated run. A report until a decision record promotes it. | report (planned) |
 
 ### B3: a decider in Java
 
-The guide's Example 2, shortened:
+The starter's [`Loan`](../../examples/java-starter/loans/domain/src/main/java/starter/loans/domain/Loan.java) (compiled, abridged; its states, commands and events are sealed interfaces of records nested in `Loan`, and `Refusal` is an enum):
 
 ```java
-/** Library loan aggregate as a pure decider (B3). */
-@AggregateRoot
+/** The loan aggregate as a pure decider (B3). */
 public final class Loan {
-  private Loan() {}
+    private Loan() {}
 
-  /** Folds one event into the state; total, with no default case (B3, C12). */
-  public static LoanState evolve(LoanState state, LoanEvent event) {
-    return switch (event) {
-      case LoanEvent.LoanOpened e -> new LoanState.Active(e.loanId(), e.bookId(), e.memberId(), e.duration(), e.openedOn());
-      case LoanEvent.LoanRenewed e -> switch (state) {
-        case LoanState.Active a -> new LoanState.Active(e.loanId(), a.bookId(), a.memberId(), e.duration(), e.renewedOn());
-        case LoanState.Returned r -> r;
-      };
-      case LoanEvent.LoanReturned e -> new LoanState.Returned(e.loanId(), e.returnedOn());
-    };
-  }
+    public sealed interface State permits Active, Ended {}
+    public sealed interface Command permits Renew, Return {}
+    public sealed interface Event permits Opened, Renewed, Returned {}
+    // record Active(LoanId loanId, BookId bookId, MemberId memberId, LoanDays duration, LocalDate since) implements State
+    // record Ended(LoanId loanId, MemberId memberId, LocalDate returnedOn) implements State; and so on
 
-  /** True once the loan has ended (B3). */
-  public static boolean isTerminal(LoanState state) {
-    return switch (state) {
-      case LoanState.Active _ -> false;
-      case LoanState.Returned _ -> true;
-    };
-  }
+    /** Decides what a command does to a loan; the only place business decisions live (B3). */
+    public static Result<List<Event>, Refusal> decide(LocalDate today, Command command, State state) {
+        return switch (state) {
+            case Active active -> switch (command) {
+                case Renew renew -> renew.duration().compareTo(active.duration()) > 0
+                        ? Result.ok(List.of(new Renewed(active.loanId(), renew.duration(), today)))
+                        : Result.err(Refusal.NOT_AN_EXTENSION);
+                case Return ignored -> Result.ok(List.of(new Returned(active.loanId(), active.memberId(), today)));
+            };
+            case Ended ended -> switch (command) {
+                case Renew ignored -> Result.err(Refusal.LOAN_ENDED);
+                case Return ignored -> Result.err(Refusal.LOAN_ENDED);
+            };
+        };
+    }
 
-  /** Decides a command against the state; the date is the one leading parameter (B3, G11). */
-  public static Result<Seq<LoanEvent>, LoanRefusal> decide(Date today, LoanCommand command, LoanState state) {
-    return switch (state) {
-      case LoanState.Returned _ -> Result.err(LoanRefusal.LOAN_ENDED);   // an ended aggregate refuses every command
-      case LoanState.Active a -> switch (command) {
-        case LoanCommand.Renew renew -> Result.ok(Seq.of(new LoanEvent.LoanRenewed(a.loanId(), renew.duration(), today)));
-        case LoanCommand.Return _ -> Result.ok(Seq.of(new LoanEvent.LoanReturned(a.loanId(), today)));
-      };
-    };
-  }
+    /** Folds one event into the state; total over every (state, event) pair (B3, C6). */
+    public static State evolve(State state, Event event) {
+        return switch (event) {
+            case Opened opened -> start(opened);
+            case Renewed renewed -> switch (state) {
+                case Active active -> new Active(
+                        active.loanId(), active.bookId(), active.memberId(), renewed.duration(), renewed.renewedOn());
+                case Ended ended -> ended;
+            };
+            case Returned returned -> new Ended(returned.loanId(), returned.memberId(), returned.returnedOn());
+        };
+    }
+
+    /** Whether the loan has reached its end (B3). */
+    public static boolean isTerminal(State state) {
+        return switch (state) {
+            case Active active -> false;
+            case Ended ended -> true;
+        };
+    }
 }
 ```
 
-`LoanState`, `LoanEvent` and `LoanCommand` are sealed interfaces whose cases are nested records (for example `record Renew(LoanDays duration) implements LoanCommand {}`), and `LoanRefusal` is an enum. Because all three are sealed and no switch has a `default`, adding a case breaks the compile wherever it is not handled. On Java 21, replace `_` with a named binding. A record pattern over a pair (`switch (new Step(command, state))` with `case Step(LoanCommand.Renew r, LoanState.Active a)`) is also exhaustive-checked, and it mirrors the Rust `match (command, state)` most closely.
+Because all three types are sealed and no switch has a `default` (which the starter's `C12-no-default-arm` check enforces), adding a case breaks the compile wherever it is not handled. Two differences from this page's rules, both deliberate in a small starter: it uses `java.time.LocalDate` and `java.util.List` (from `List.of`, which is immutable) where a larger project would use kernel `Date` and `Seq` types (`D13`, `C2`), and it has no `@AggregateRoot` marker yet. On Java 22 or later, replace the `ignored` bindings with `_`. A record pattern over a pair (`switch (new Step(command, state))` with `case Step(Renew r, Active a)`) is also exhaustive-checked, and it mirrors the Rust `match (command, state)` most closely.
 
 ---
 
@@ -979,7 +1070,11 @@ public final class Loan {
 | :--- | :--- | :--- |
 | **M1** | The kernel declares marker interfaces `Command`, `Event` and `View`. ArchUnit checks three things. First, every top-level type in `..contracts..` implements exactly one of them, or is a sealed interface whose cases do. Second, contracts records declare no methods except their accessors and the generated `equals`, `hashCode` and `toString`, and static `create` factories on constrained values are allowed. Third, no store or journal API accepts a `Command` subtype as an event. | auto |
 | **M2** | ArchUnit: the journal envelope record has `correlationId`, `causationId` and `version` components, of kernel types, and no generated-id call (`UUID.randomUUID` is banned by D1) reaches them. The sequence number is the journal's own type. Keep it dormant until the journal lands. | auto (dormant) |
-| **M3**–**M7** | No statement. Leave them dormant. | — |
+| **M3** | ArchUnit: one dispatcher class in `application` holds the subscriber list as one ordered, declared constant; no `ServiceLoader`, classpath scanning, `CompletableFuture.runAsync` or executor fan-out in `application`. | auto (dormant) |
+| **M4** | A narrow test makes the store's Nullable form fail the second write of `record`, and a scenario test shows that nothing was published. | auto (dormant) |
+| **M5** | ArchUnit: no view-reading port in `application` is named `current*`, and handler methods take the event's sequence number when they read a view. Whether the handler reads the view as of that number is review. | auto + review (dormant) |
+| **M6** | A scenario test with a handler that always fails expects the run to stop with a diagnosable defect. A test checks that each projection class keeps a checkpoint and is idempotent (replaying an event twice changes nothing). | auto (dormant) |
+| **M7** | A concurrency scenario sends commands from timers and background work through the one queue; a narrow test opens the store twice and expects the second writer to be refused (the store takes an exclusive `FileChannel.lock`). | auto + review (dormant) |
 
 ---
 
@@ -993,7 +1088,13 @@ public final class Loan {
 | **P11** | ArchUnit: `evolve` methods call nothing outside their own context's `domain`, `contracts` and `kernel` (inspect `getMethodCallsFromSelf()`, including synthetic lambdas). Whether events carry the facts they used is review. | auto + review |
 | **P12** | ArchUnit: every `Command` record in `contracts` has a `basedOn` component of the kernel sequence type, unless the glossary marks the command head-independent. | auto |
 | **P15** | A shape test writes each persisted or sorted union's cases in order to `shapes.txt` and compares the output with the committed file line by line. A second test checks the file against `git show $(git merge-base HEAD origin/main):shapes.txt`: cases only appended, none moved or removed. When no merge base exists, skip locally and fail on CI. An empty file is refused. | auto |
-| **P4**, **P5**, **P7**–**P10**, **P13** | No statement. | — |
+| **P4** | Per tagged release, a test opens each committed golden stored instance (`src/test/resources/golden-instances/<release>/`) and compares its state hash; the history check keeps the folder append-only (`F4`). | planned |
+| **P5** | A source scan of the store wrapper bans `UPDATE` and `DELETE` statements on the journal table; a narrow test and a property show that a gap or broken hash chain refuses to open. | auto (dormant) |
+| **P7** | ArchUnit: the store's one public write method is `record(instance, entry, expectedPosition)` returning `Result<Position, Conflict>`, and the entry record holds the command, events, `CommandId`, `BasedOn`, date, versions and the previous hash. Durable-commit settings are checked by a narrow test; holding a write open across computation is review. | auto + review (dormant) |
+| **P8** | ArchUnit: the snapshot record has `atSeq` and `checksum` components. A scenario test opens from the newest sound snapshot and passes over a torn one. | auto (dormant) |
+| **P9** | The store's `createNull` takes a `failAt(Step)` option; the steps are an enum named in its documentation comment. The inventory runner checks one scenario test per step; a narrow test kills a real child JVM mid-write (`ProcessBuilder`, narrow tier only). | auto (dormant) |
+| **P10** | ArchUnit: only the store writes the archive and projections, through one derivation class; each projection has `empty()` and `step(...)` and no other way to build it. A jqwik property compares the rebuilt value with the live one. | auto (dormant) |
+| **P13** | For each file-rewriting tool: a round trip over a fixture with an unknown field keeps it, running twice gives identical bytes, and a narrow test shows the tool refuses its input path as its output path. | auto (dormant) |
 
 **P15, where the order comes from.** For **enums**, `values()` returns the declaration order, which is also the `compareTo` and `ordinal()` order, so an enum used as a sort key must be append-only. For **sealed interfaces**, `Class.getPermittedSubclasses()` documents its order as unspecified. Read the order from the source `permits` clause (with JavaParser) or from the codec's tag table instead. Require an explicit `permits` clause on every persisted sealed type, so the order is visible.
 
@@ -1007,11 +1108,15 @@ These groups are about git history, files and process, so the language matters l
 | :--- | :--- | :--- |
 | **R1** | The history and inventory runners read the service-level file. Flaky-gate counts come from CI history: a red run followed by a green run on the same commit, plus quarantined tests (E30). | neutral |
 | **R5** | History check: a `Prevents:` line on fix commits, and the postmortem link check. | neutral |
-| **R2**–**R4**, **R6**, **R8** | No statement. | — |
+| **R2** | A nightly verifier re-decides golden journals and checks the hash chain and state-hash checkpoints; a narrow test plants a corrupted record and expects it found. | auto (dormant, nightly) |
+| **R3** | A nightly drill restores the latest backup to a scratch directory, runs the database's full integrity and foreign-key checks, opens it, plays one step and compares the state hash; the health check fails when the last good drill is over a week old. | auto (dormant, nightly) |
+| **R4** | A narrow test per repair or migration tool: without a fresh verified copy of its input, it refuses to run. | auto (dormant) |
+| **R6** | A test checks that a crash report holds the journal tail, the seed and the build id (from the JAR manifest), and a tool turns a report into a JUnit regression test. | auto (dormant) |
+| **R8** | Process, at release: the first ring's minimum time and sessions are recorded in the release record. | process |
 | **S1**, **S2**, **S4**, **S5**, **S8** | History check. S5 counts `git diff --numstat` lines over the branch's commits. Generated sources (`build/`, annotation-processor output) are excluded, and `.java` sources never are. S8 checks that `settings.gradle.kts` includes nothing under `spikes/`, that no build file references it, and that the spike folders are no older than 14 days. | neutral |
 | **S3** | An `exemplars/` Gradle project, built in the gate, holds the typed id, constrained value, decider, codec, Nullable wrapper, builder and narrow test exemplars. A test checks that the exemplar list matches the project's classes. Duplicate patterns are review. | auto + review |
 | **S9** | The landing script (neutral): `set -euo pipefail`, never pipe `./gradlew` into `tail` or `head`, refuse leftover conflict markers, push only after every gate exits green, check that the remote head equals the local head, and land stacked branches in order. | process |
-| **S7** | No statement. | — |
+| **S7** | Process: a research backlog with dated, logged slots; adoption goes through a written evaluation and a decision record. | process |
 | **V1**–**V8** | The model-review runner is language-neutral. For Java, give the rubric items Java path scopes (`**/src/main/java/com/example/contexts/*/domain/**`, `**/src/test/java/**`). Calibrate on Java cases (`V4`: 50 to 200 labelled cases, at least 3 faulty and 3 good per item). Keep findings advisory until calibration passes, as the Rust workspace does. For V8, the protected paths are existing `src/test/java` lines, `config/**`, `breaches/**`, `src/test/resources/golden/**` and the gate scripts. | neutral (advisory until calibrated) |
 
 ---
@@ -1060,9 +1165,13 @@ The guide's five runners are language-neutral programs. Write them in any langua
 
 ## 15. Planted breaches and the meta-test (F5)
 
-`breaches/` is a **separate Gradle build** that is never included in the main `settings.gradle.kts`. Each breach is a tiny project named after its rule (`breaches/a10-third-party-outside-wrapper`) that applies the convention plugin of the layer it imitates, through `includeBuild("../build-logic")`. The meta-test proves, for each rule, that the check fires on its breach and on nothing else:
+[docs/self-test-harness.md](../self-test-harness.md) explains the harness in language-neutral terms, using the starter as its worked example.
 
-- **ArchUnit rules** are evaluated in-process on the breach classes: `rule.evaluate(new ClassFileImporter().importPath(breachClassesDir))` gives an `EvaluationResult`, and `hasViolation()` must be true for the breach's own rule and false for every other rule. Compile all breach sources **once**, in one breach build with checks off, and import each breach's directory, so the gate never builds the workspace twice (guide section 5).
+**What the starter does** (compiled; `./gradlew check` runs it). `breaches/` is one Gradle project, included in `settings.gradle.kts` but depended on by no other project. Each breach is a folder named by its check id, `breaches/<check-id>/src/` (for example `breaches/A10-one-wrapper/src/starter/loans/application/GsonOutsideItsWrapper.java`), and the project creates one source set per folder, so each breach compiles alone under the same compiler settings as production code. The check registry (`architecture/.../Checks.java`) lists every check by the same id, and the meta-test (`MetaTest.java`) reads the real code and each breach's classes and sources **by path**, then asserts three things: the set of check ids equals the set of breach folders; every check passes on the real code and selects something there (or, if marked dormant with its backlog item, selects nothing); and every breach fires its own check and no other. The two test-runner judges (`E8`, `E22`) are proved by running each breach's tests in-process with JUnit's `EngineTestKit` and reading the failure messages that carry the judge's id.
+
+**The alternative** for a larger project with per-layer convention plugins: make `breaches/` a separate Gradle build, never included in the main `settings.gradle.kts`, where each breach is a tiny project that applies the convention plugin of the layer it imitates, through `includeBuild("../build-logic")`. Then Checkstyle, PMD and forbidden-apis configurations are exercised exactly as in production. Either way, the meta-test proves, for each rule, that the check fires on its breach and on nothing else:
+
+- **ArchUnit rules** are evaluated in-process on the breach classes: `rule.evaluate(new ClassFileImporter().importPath(breachClassesDir))` gives an `EvaluationResult`, and `hasViolation()` must be true for the breach's own rule and false for every other rule. Compile all breach sources **once**, in the same build (the starter's source sets) or in one breach build, and import each breach's class directory, so the gate never builds the workspace twice (guide section 5). The starter compiles breaches with the production compiler settings, so a breach must break exactly one rule and nothing else.
 - **Checkstyle, PMD and forbidden-apis** are run through their Java APIs on the breach sources or classes (Checkstyle's `Checker`, PMD's `PmdAnalysis`, and forbidden-apis' `Checker` class), and the meta-test asserts that the reported check `id` equals the breach's rule id.
 - **Custom Error Prone checks** are proved with `CompilationTestHelper` (`// BUG: Diagnostic contains: C6`). Stock javac and Error Prone settings are proved by compiling the breach file in-process with `ToolProvider.getSystemJavaCompiler()` and the same options.
 - **Build-file rules** (A1, A10, H2, F1) are proved by running the flat test on the breach's `build.gradle.kts`.
