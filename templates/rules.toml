@@ -1,0 +1,2407 @@
+# The rule table: a starter for a new project. Copy it to standards/rules.toml and adjust it there.
+#
+# The schema, the allowed values and which rule reads each section are in docs/rule-table.md. In short:
+# - [[layer]] rows classify every package of the workspace by its build file (A1, A2, A10, A14);
+# - the word and name lists ([words], [names], [decider], [banned], [packages], [primitives], [text], [glossary], [vocabulary]) are the
+#   committed vocabularies the checks read;
+# - [allow] holds every exception, each with a reason, the decision record it relaxes and a dated approval (F1, I2, I5);
+# - the limit tables ([structure], [supply], [s5], [vision], [spikes], [quarantine], [i2], [f2], [f4], [e33], [range]) hold the numbers and
+#   paths the structure, supply-chain and history checks read;
+# - one [[rule]] row per rule: 157 rows, every one `planned` (or `process`) until its check and planted breach exist (F5).
+#
+# This is a principle file (F4): it changes only by adding or tightening unless the commit cites a dated approval (`Owner-yes: YYYY-MM-DD`).
+# Adding a rule, a banned word or a layer row is a tightening; removing one, or lowering a rule's status, is a loosening. A new rule takes
+# the next id after the highest in its group, and a retired id is never reused. A commit that changes this file cites a decision record (I3).
+
+# ---------------------------------------------------------------------------------------------------------------------------------------
+# A1's layer table. Every package of the workspace has a row, found by the path of its build file relative to the workspace root; a package
+# that matches no row fails A1. The FIRST row whose pattern matches is the package's row, so the order matters: a specific row (ImportHost)
+# comes before the general one it would otherwise fall into (Host), and Breach comes before Test.
+#
+# Patterns are path globs, one list per build system; keep only the build system(s) the project uses:
+#   cargo  = Cargo.toml (Rust)            maven  = pom.xml (Maven modules)         gradle = build.gradle.kts or build.gradle (Gradle modules)
+#   npm    = package.json (npm workspaces) msbuild = *.csproj, *.fsproj, *.vbproj (.NET)
+# In a pattern, {context} names a context of the context map (standards/contexts.toml) and must be the same wherever it appears in one
+# pattern; {name} matches one path segment; * matches within one segment; ** matches any depth.
+#
+# references: the layers the row's packages may depend on. A target may be qualified: "Contracts:own" (the same context), "Contracts:upstream"
+# (a context upstream of this one in the context map), "Contracts:any", "Application:any". "*" allows every reference (test packages).
+# packages: the third-party packages the whole layer may use ("*" allows all; Test only). A10 narrows production packages one by one in
+# [packages] below.
+
+[[layer]]
+name = "Kernel"
+cargo = ["kernel/Cargo.toml"]
+maven = ["kernel/pom.xml"]
+gradle = ["kernel/build.gradle.kts", "kernel/build.gradle"]
+npm = ["kernel/package.json"]
+msbuild = ["kernel/*.*proj"]
+references = []
+packages = []
+
+[[layer]]
+name = "Contracts"
+cargo = ["contexts/{context}/contracts/Cargo.toml"]
+maven = ["contexts/{context}/contracts/pom.xml"]
+gradle = ["contexts/{context}/contracts/build.gradle.kts", "contexts/{context}/contracts/build.gradle"]
+npm = ["contexts/{context}/contracts/package.json"]
+msbuild = ["contexts/{context}/contracts/*.*proj"]
+references = ["Kernel", "Contracts:upstream"]
+packages = []
+
+[[layer]]
+name = "Domain"
+cargo = ["contexts/{context}/domain/Cargo.toml"]
+maven = ["contexts/{context}/domain/pom.xml"]
+gradle = ["contexts/{context}/domain/build.gradle.kts", "contexts/{context}/domain/build.gradle"]
+npm = ["contexts/{context}/domain/package.json"]
+msbuild = ["contexts/{context}/domain/*.*proj"]
+references = ["Kernel", "Contracts:own", "Contracts:upstream"]
+packages = []
+
+[[layer]]
+name = "Codec"
+cargo = ["contexts/{context}/codec/Cargo.toml"]
+maven = ["contexts/{context}/codec/pom.xml"]
+gradle = ["contexts/{context}/codec/build.gradle.kts", "contexts/{context}/codec/build.gradle"]
+npm = ["contexts/{context}/codec/package.json"]
+msbuild = ["contexts/{context}/codec/*.*proj"]
+references = ["Kernel", "Contracts:own", "Domain:own"]
+packages = []
+
+[[layer]]
+name = "Application"
+cargo = ["contexts/{context}/application/Cargo.toml"]
+maven = ["contexts/{context}/application/pom.xml"]
+gradle = ["contexts/{context}/application/build.gradle.kts", "contexts/{context}/application/build.gradle"]
+npm = ["contexts/{context}/application/package.json"]
+msbuild = ["contexts/{context}/application/*.*proj"]
+references = ["Kernel", "Infrastructure", "Domain:own", "Codec:own", "Contracts:own", "Contracts:upstream"]
+packages = []
+
+# The one thin cross-context composition package (A14), which schedules work across the context applications. The guide's examples call
+# it `Day`, after the reference code base's daily cycle; name it after what it schedules. It may name Kernel and any context's Contracts
+# (in languages that reach a type only through a direct dependency), but never a Domain package or an Infrastructure wrapper.
+[[layer]]
+name = "Composition"
+cargo = ["composition/Cargo.toml"]
+maven = ["composition/pom.xml"]
+gradle = ["composition/build.gradle.kts", "composition/build.gradle"]
+npm = ["composition/package.json"]
+msbuild = ["composition/*.*proj"]
+references = ["Application:any", "Contracts:any", "Kernel"]
+packages = []
+
+[[layer]]
+name = "Infrastructure"
+cargo = ["infrastructure/{name}/Cargo.toml"]
+maven = ["infrastructure/{name}/pom.xml"]
+gradle = ["infrastructure/{name}/build.gradle.kts", "infrastructure/{name}/build.gradle"]
+npm = ["infrastructure/{name}/package.json"]
+msbuild = ["infrastructure/{name}/*.*proj"]
+references = ["Kernel"]
+packages = []
+
+# Import and ImportHost apply only when reimplementing a reference program (A7): Import alone knows the legacy format, and its host is the
+# one program that may reference it. Delete both rows otherwise. ImportHost comes before Host, whose pattern would also match its path.
+[[layer]]
+name = "Import"
+cargo = ["import/Cargo.toml"]
+maven = ["import/pom.xml"]
+gradle = ["import/build.gradle.kts", "import/build.gradle"]
+npm = ["import/package.json"]
+msbuild = ["import/*.*proj"]
+references = ["Kernel", "Contracts:any"]
+packages = []
+
+[[layer]]
+name = "ImportHost"
+cargo = ["hosts/import/Cargo.toml"]
+maven = ["hosts/import/pom.xml"]
+gradle = ["hosts/import/build.gradle.kts", "hosts/import/build.gradle"]
+npm = ["hosts/import/package.json"]
+msbuild = ["hosts/import/*.*proj"]
+references = ["Kernel", "Contracts:any", "Import", "Composition"]
+packages = []
+
+[[layer]]
+name = "Host"
+cargo = ["hosts/{name}/Cargo.toml"]
+maven = ["hosts/{name}/pom.xml"]
+gradle = ["hosts/{name}/build.gradle.kts", "hosts/{name}/build.gradle"]
+npm = ["hosts/{name}/package.json"]
+msbuild = ["hosts/{name}/*.*proj"]
+references = ["Application:any", "Composition", "Infrastructure"]
+packages = []
+
+# The planted breaches (F5): each a tiny package or fixture that breaks exactly one rule. Excluded from the production build; nothing
+# depends on them. Before Test, so that a breach under a tests/ path is still a breach.
+[[layer]]
+name = "Breach"
+cargo = ["breaches/**"]
+maven = ["breaches/**"]
+gradle = ["breaches/**"]
+npm = ["breaches/**"]
+msbuild = ["breaches/**"]
+references = []
+packages = []
+
+# E3 narrows what each kind of test package may reference.
+[[layer]]
+name = "Test"
+cargo = ["tests/{name}/Cargo.toml"]
+maven = ["tests/{name}/pom.xml"]
+gradle = ["tests/{name}/build.gradle.kts", "tests/{name}/build.gradle"]
+npm = ["tests/{name}/package.json"]
+msbuild = ["tests/{name}/*.*proj"]
+references = ["*"]
+packages = ["*"]
+
+# ---------------------------------------------------------------------------------------------------------------------------------------
+# A9: no word of these lists in a type, module or namespace of Domain or Contracts, or in an Application port. Matched case-sensitively as
+# a word of the name (SqlOrder, OrderJson), so add the casings the language's naming convention produces.
+[words]
+infrastructure = ["Sql", "Json", "Http", "Socket", "File", "Db", "Clock", "Thread", "Cache", "Queue"]
+screens = ["Button", "Click", "Screen", "Page"]
+
+# B22: no module, file, type or top-level function of Domain, Contracts or Application is named with, or ends in, one of `vague`, unless
+# the whole name is a glossary term. B7: domain events are named in the past tense: ending in "ed", or ending in one of `past_irregular`.
+[names]
+vague = ["Entities", "ValueObjects", "Services", "Factories", "Repositories", "Helpers", "Utils", "Common", "Shared", "Misc", "Base", "Impl", "Processor", "Handler", "Data", "Info", "Manager"]
+past_irregular = ["Sold", "Bought", "Lost", "Won", "Left", "Paid", "Sent", "Built", "Made", "Began", "Broke", "Kept", "Put", "Set", "Cut", "Hit", "Shot", "Taken", "Given", "Written", "Chosen", "Drawn"]
+
+# B3: the leading parameters a `decide` may take before the command and the state, by simple type name: the closed list of everything a
+# decision may read besides them. The reference lists its rule-set type, its view of the seeded random stream (D2) and its domain date
+# (D13); list your own equivalents and nothing else.
+[decider]
+leading = ["Rules", "DiceView", "Date"]
+
+# A10: dependency-injection containers, banned everywhere (the Hosts wire the system by passing functions). E1: mocking libraries, banned
+# in every package (tests double with Nullable wrappers, E5). Names as the build file names them; keep the ecosystems you use.
+[banned]
+containers = [
+    # .NET
+    "Microsoft.Extensions.DependencyInjection", "Autofac", "SimpleInjector", "Ninject", "Castle.Windsor", "Lamar", "DryIoc", "StructureMap", "Unity.Container",
+    # JVM (group:artifact)
+    "com.google.inject:guice", "com.google.dagger:dagger", "org.springframework:spring-context",
+    # npm
+    "inversify", "tsyringe", "awilix", "typedi",
+    # Rust
+    "shaku",
+]
+mocking = [
+    # .NET
+    "Moq", "NSubstitute", "FakeItEasy", "Foq", "JustMock",
+    # JVM (group:artifact)
+    "org.mockito:mockito-core", "org.easymock:easymock", "io.mockk:mockk", "org.jmock:jmock",
+    # npm
+    "sinon", "testdouble", "ts-mockito", "jest-mock-extended",
+    # Rust
+    "mockall", "faux", "mocktopus",
+]
+
+# A10: each production package's third-party packages, by package name. A package appears under its one wrapper; its licence and the
+# reason for it are recorded in the commit that adds it (H4). Adding an entry needs a dated approval in the comment above it.
+[packages]
+# Owner-yes: YYYY-MM-DD <tag>: the store's one database driver, behind the OrderStore wrapper only.
+# orderstore = ["rusqlite"]
+
+# C4: raw primitives allowed in Domain and Contracts signatures, by full type name. Empty: wrap them in constrained types (C3).
+[primitives]
+allowed = []
+
+# D5: the string literals Kernel, Domain and Contracts may hold, as identifiers and keys. Empty: words come from text resources at the edge.
+[text]
+keys = []
+
+# B4: names that are not glossary terms, by exact name or by a trailing * (a prefix).
+[glossary]
+generic = []
+
+# B13 checks the context map's fields against these closed vocabularies, and B1 its relation kinds.
+[vocabulary]
+subdomain = ["core", "supporting", "generic"]
+status = ["implemented", "sample", "planned"]
+logic = ["transaction-script", "active-record", "domain-model", "event-sourced"]
+architecture = ["layered", "ports-and-adapters", "cqrs"]
+relation_kind = ["published-language", "open-host-service", "customer-supplier", "conformist", "anticorruption-layer", "shared-kernel", "partnership", "separate-ways"]
+
+# ---------------------------------------------------------------------------------------------------------------------------------------
+# Exceptions. Every exception to a rule is an entry here, never a private skip list inside a check. Each entry names the rule, the exact
+# member or file (no wildcards), the reason, the decision record it relaxes (I2) and the dated approval; `review_by` is optional and fails
+# the gate once it lapses, and an entry that no longer matches any violation fails the gate (I5). A quarantined flaky test is an entry with
+# `expires` at most [quarantine].max_days after its approval (E30). The lists, by the rule that reads each:
+[allow]
+general = []             # I5: any rule's finding, as { rule, file, member, reason, record, owner_yes, review_by }
+wildcard = []            # C12: unions a catch-all case may cover
+custom_equality = []     # B9: types with custom equality, ordering or hashing (each with its law properties)
+struct_constrained = []  # C3: constrained types whose default zero value is legal, with why
+same_entry = []          # B12: several aggregates' events in one journal entry outside jobs and registered policies
+states_as_flags = []     # C8: records excused from the states-as-types report
+warnings_kept = []       # F1, H5: warnings kept as warnings (for example the package audit's, judged by the nightly audit instead)
+quarantine = []          # E30: flaky tests, with `expires`
+readers = []             # I5: the rules whose checks read this table; an entry for a rule not listed here matches nothing and is refused
+# One example entry (I2, I5): uncomment, and add the rule's id to `readers` when its check reads the table.
+# general = [
+#     { rule = "A6", file = "contexts/orders/domain/src/pricing.rs", member = "pricing::rounding", reason = "a mutually recursive pair the language allows inside one package; split when the pricing rules are rewritten", record = "D-0007", owner_yes = "YYYY-MM-DD", review_by = "YYYY-MM-DD" },
+# ]
+
+# ---------------------------------------------------------------------------------------------------------------------------------------
+# The numbers and paths the structure, supply-chain and history checks read. The reference code base kept the history numbers in a file of
+# their own (history.toml) and the structure numbers in its linter configuration; one table is enough. Keys that start with `max` loosen
+# when they grow (F4).
+
+# G3, G4, G11, A17: complexity and size. Complexity is cyclomatic, or the stricter cognitive measure where that is what the tooling offers.
+[structure]
+max_complexity = 15
+max_complexity_shell = 5        # A17: Application, Composition and Host functions
+max_nesting = 4
+max_function_lines = 80
+max_module_lines = 500
+max_file_lines = 600
+max_parameters = 4              # G11: public functions; records bundle anything more
+max_same_primitive_parameters = 2  # G11: 3 or more parameters of one primitive type fail (smart constructors excepted)
+domain_literals = [0, 1, -1]    # G7: the only unnamed numeric literals Domain may hold outside its rules module
+# B25: an aggregate state's collection-typed fields; the reference left this number to be set once the report has data.
+# max_aggregate_collections = 0
+
+# H4: a pinned version was published at least this many days before the commit that adopts it.
+[supply]
+min_age_days = 14
+
+# The commit rules (B24, E12, E23, F4, I3, R5, S5, B26) read the commits from `since` to HEAD: set it to the commit that precedes the
+# commit adding the history check, so that nothing from before the rules existed is judged. It never moves later (F4).
+[range]
+since = ""
+
+# S5: a branch holds at most this many changed lines, summed over its commits (generated files excluded), and is merged within this many
+# hours, unless a commit of the branch cites a dated approval.
+[s5]
+max_changed_lines = 400
+max_hours = 24
+generated = ["standards/*.surface.txt", "standards/union-shapes.txt", "**/Cargo.lock", "**/package-lock.json", "**/pnpm-lock.yaml", "**/yarn.lock", "**/packages.lock.json", "**/gradle.lockfile"]
+
+# B26: the product vision is under about this many words and names none of these technologies.
+[vision]
+max_words = 400
+technology = ["SQL", "JSON", "TOML", "HTTP", "API", "database", "socket", "browser", "Docker", "Linux", "Windows", "WebAssembly"]
+
+# S8: a spike folder older than this many days (its name's date against the head commit's date) is deleted.
+[spikes]
+max_days = 14
+
+# E30: a quarantine expires at most this many days after its approval.
+[quarantine]
+max_days = 7
+
+# I2: decision records from this number on carry a "Revisit when" line. 1 for a new project: every record does.
+[i2]
+revisit_from = 1
+
+# F2: no tracked file has one of these extensions or is larger than max_bytes. Add the reference product's own file types.
+[f2]
+extensions = [".exe", ".dll", ".bin", ".zip", ".7z"]
+max_bytes = 2097152
+
+# F4: `principle` files change only by adding or tightening unless the commit cites a dated approval; `structural` files change only by a
+# commit that cites a decision record; `append_only` paths never lose or change a line; P15's union shape files only gain cases at the end.
+[f4]
+principle = ["standards/rules.toml", "standards/budgets.toml", "standards/rubrics/**"]
+structural = ["standards/contexts.toml", "standards/glossary.md", "standards/policies.toml"]
+append_only = ["standards/review-cases/**", "tests/golden/**", "corpus/**", "migrations/**"]
+append_only_shapes = ["standards/union-shapes.txt"]
+
+# E33: approval files (`*.approved.*`) live only under a folder of one of these names; `*.received.*` files are never committed.
+[e33]
+approval_folders = ["approvals", "snapshots"]
+
+# ---------------------------------------------------------------------------------------------------------------------------------------
+# The rules. Fields (docs/rule-table.md): id, group, title; kind (Q, L, Q+L, report, process); cadence (commit, nightly, on-demand);
+# extent (atomic, holistic); applies_to (layers or areas); characteristics and family (I1); check (the runner that owns the check:
+# architecture, history, inventory, supply, review, meta, mutation, release, report, process); reimplementation ("whole" or "clause" for
+# the rules that apply only when reimplementing a reference program); origin = "guide" for the two rules the guide adds; status (planned,
+# dormant, partial, built, review, report, process). Optional, added as the work goes: record, milestone, dormant_until,
+# <runner>_dormant_until, parts_pending.
+#
+# Rows are in the guide's adoption order (groups F, H, I, A, C, D, G, E, B, M, P, R, S, V), so that adopting from the top follows it.
+# Missing ids (A3, A4, B2, ...) were retired in the reference code base and are not reused.
+
+# --- group F ------------------------------------------------------------------------------------------------------------------------
+
+[[rule]]
+id = "F1"
+group = "F"
+title = "Warnings are errors"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all production packages (tests may relax listed warnings by allow entry)"
+characteristics = ["evolvability"]
+family = "house"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "F2"
+group = "F"
+title = "No third-party proprietary material"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all"
+characteristics = ["deployability"]
+family = "house"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "F3"
+group = "F"
+title = "TODOs and cited ids must resolve"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all"
+characteristics = ["evolvability"]
+family = "house"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "F4"
+group = "F"
+title = "Principle files only tighten"
+kind = "Q"
+cadence = "commit"
+extent = "holistic"
+applies_to = "standards"
+characteristics = ["evolvability"]
+family = "house"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "F5"
+group = "F"
+title = "Every rule proves it works"
+kind = "Q"
+cadence = "commit"
+extent = "holistic"
+applies_to = "standards"
+characteristics = ["evolvability"]
+family = "house"
+check = "meta"
+status = "planned"
+
+[[rule]]
+id = "F6"
+group = "F"
+title = "No commented-out code or debug leftovers"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all"
+characteristics = ["simplicity"]
+family = "house"
+check = "architecture"
+status = "planned"
+
+# --- group H ------------------------------------------------------------------------------------------------------------------------
+
+[[rule]]
+id = "H1"
+group = "H"
+title = "The toolchain is pinned exactly"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "repo"
+characteristics = ["deployability"]
+family = "supply-chain"
+check = "supply"
+status = "planned"
+
+[[rule]]
+id = "H2"
+group = "H"
+title = "Packages and tools pinned exactly"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "repo"
+characteristics = ["deployability"]
+family = "supply-chain"
+check = "supply"
+status = "planned"
+
+[[rule]]
+id = "H4"
+group = "H"
+title = "A minimum age for new versions"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "repo"
+characteristics = ["deployability"]
+family = "supply-chain"
+check = "supply"
+status = "planned"
+
+[[rule]]
+id = "H5"
+group = "H"
+title = "A nightly package audit"
+kind = "Q"
+cadence = "nightly"
+extent = "atomic"
+applies_to = "repo"
+characteristics = ["deployability"]
+family = "supply-chain"
+check = "supply"
+status = "planned"
+
+[[rule]]
+id = "H6"
+group = "H"
+title = "Builds are deterministic and reproducible"
+kind = "Q"
+cadence = "nightly"
+extent = "atomic"
+applies_to = "repo"
+characteristics = ["determinism", "deployability"]
+family = "supply-chain"
+check = "supply"
+status = "planned"
+
+[[rule]]
+id = "H9"
+group = "H"
+title = "Releases"
+kind = "Q"
+cadence = "on-demand"
+extent = "atomic"
+applies_to = "release"
+characteristics = ["deployability"]
+family = "supply-chain"
+check = "release"
+status = "planned"
+
+# --- group I ------------------------------------------------------------------------------------------------------------------------
+
+[[rule]]
+id = "I1"
+group = "I"
+title = "Every rule states what it serves"
+kind = "Q"
+cadence = "commit"
+extent = "holistic"
+applies_to = "standards"
+characteristics = ["evolvability"]
+family = "governance"
+check = "meta"
+status = "planned"
+
+[[rule]]
+id = "I2"
+group = "I"
+title = "Decision records are linted"
+kind = "Q"
+cadence = "commit"
+extent = "holistic"
+applies_to = "decision records, standards"
+characteristics = ["evolvability"]
+family = "governance"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "I3"
+group = "I"
+title = "Structural commits cite a decision record"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "repo"
+characteristics = ["evolvability"]
+family = "governance"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "I5"
+group = "I"
+title = "Stale allow entries fail"
+kind = "Q"
+cadence = "commit"
+extent = "holistic"
+applies_to = "standards"
+characteristics = ["evolvability"]
+family = "governance"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "I6"
+group = "I"
+title = "Checks are not fooled by inlining"
+kind = "Q"
+cadence = "commit"
+extent = "holistic"
+applies_to = "architecture tests"
+characteristics = ["evolvability"]
+family = "governance"
+check = "meta"
+status = "planned"
+
+[[rule]]
+id = "I9"
+group = "I"
+title = "A monthly vitality review"
+kind = "L"
+cadence = "on-demand"
+extent = "atomic"
+applies_to = "process"
+characteristics = ["evolvability"]
+family = "governance"
+check = "process"
+status = "planned"
+
+# --- group A ------------------------------------------------------------------------------------------------------------------------
+
+[[rule]]
+id = "A1"
+group = "A"
+title = "The layer table governs every dependency"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "A2"
+group = "A"
+title = "Contexts see each other only through contracts"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "A5"
+group = "A"
+title = "Production code never depends on the reference program"
+kind = "Q"
+cadence = "commit"
+extent = "holistic"
+applies_to = "all"
+characteristics = ["exactness", "evolvability"]
+family = "evans-vernon"
+check = "architecture"
+reimplementation = "whole"
+status = "planned"
+
+[[rule]]
+id = "A6"
+group = "A"
+title = "No dependency cycles"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "A7"
+group = "A"
+title = "Only the import layer knows the legacy format"
+kind = "Q+L"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all but Import"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+reimplementation = "whole"
+status = "planned"
+
+[[rule]]
+id = "A8"
+group = "A"
+title = "Codecs are pure and the store keeps envelopes"
+kind = "Q"
+cadence = "commit"
+extent = "holistic"
+applies_to = "Codec, Infrastructure"
+characteristics = ["evolvability", "recoverability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "A9"
+group = "A"
+title = "Names say purpose, not technology"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain, Contracts, Application ports"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "A10"
+group = "A"
+title = "One wrapper per third-party package"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all production packages"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "A11"
+group = "A"
+title = "Storage is partitioned like the contexts"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Infrastructure"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "A13"
+group = "A"
+title = "Plug-ins are independent"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "plug-ins"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "A14"
+group = "A"
+title = "The application layer is partitioned by context"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Application, Composition"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "A17"
+group = "A"
+title = "The shell stays humble"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Application, Composition, Host"
+characteristics = ["testability", "simplicity"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+# --- group C ------------------------------------------------------------------------------------------------------------------------
+
+[[rule]]
+id = "C1"
+group = "C"
+title = "Errors are values"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain, Application (the defect path: Host)"
+characteristics = ["evolvability"]
+family = "wlaschin"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "C2"
+group = "C"
+title = "No mutation in the core"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain"
+characteristics = ["evolvability", "determinism"]
+family = "wlaschin"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "C3"
+group = "C"
+title = "Simple values are constrained types"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain, Contracts"
+characteristics = ["evolvability"]
+family = "wlaschin"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "C4"
+group = "C"
+title = "No primitive obsession"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain, Contracts"
+characteristics = ["evolvability"]
+family = "wlaschin"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "C5"
+group = "C"
+title = "No null in the core"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain"
+characteristics = ["evolvability", "determinism"]
+family = "wlaschin"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "C6"
+group = "C"
+title = "Functions are total"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain; overflow: Contracts, Codec, Application"
+characteristics = ["evolvability"]
+family = "wlaschin"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "C7"
+group = "C"
+title = "Workflows are pipelines"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Application"
+characteristics = ["evolvability"]
+family = "wlaschin"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "C8"
+group = "C"
+title = "States are types"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain, Contracts"
+characteristics = ["evolvability"]
+family = "wlaschin"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "C9"
+group = "C"
+title = "No squashed errors"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all"
+characteristics = ["evolvability"]
+family = "wlaschin"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "C10"
+group = "C"
+title = "Each core unit declares its public surface explicitly"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain, Contracts"
+characteristics = ["evolvability"]
+family = "wlaschin"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "C11"
+group = "C"
+title = "Typed errors of four kinds"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain, Contracts, Codec, Application, Host"
+characteristics = ["evolvability"]
+family = "wlaschin"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "C12"
+group = "C"
+title = "No wildcard cases over the system's own unions"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain, Application"
+characteristics = ["evolvability"]
+family = "wlaschin"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "C13"
+group = "C"
+title = "Dependencies are rejected, not injected"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain"
+characteristics = ["evolvability"]
+family = "wlaschin"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "C14"
+group = "C"
+title = "Exception handlers only at the edges"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all production packages"
+characteristics = ["evolvability"]
+family = "wlaschin"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "C15"
+group = "C"
+title = "No integer-valued enumerations in the domain"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain, Contracts"
+characteristics = ["evolvability"]
+family = "wlaschin"
+check = "architecture"
+status = "planned"
+
+# --- group D ------------------------------------------------------------------------------------------------------------------------
+
+[[rule]]
+id = "D1"
+group = "D"
+title = "No I/O or ambient state in the core"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain"
+characteristics = ["determinism"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "D2"
+group = "D"
+title = "Randomness only through one seeded service"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain"
+characteristics = ["determinism", "exactness"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "D3"
+group = "D"
+title = "No floating point in the core"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain"
+characteristics = ["determinism", "exactness"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "D4"
+group = "D"
+title = "Exact arithmetic through kernel integer wrappers"
+kind = "Q+L"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain"
+characteristics = ["exactness", "determinism"]
+family = "exact"
+check = "architecture"
+reimplementation = "whole"
+status = "planned"
+
+[[rule]]
+id = "D5"
+group = "D"
+title = "No user-facing text in the core"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain, Contracts"
+characteristics = ["evolvability"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "D8"
+group = "D"
+title = "No special human user in the core"
+kind = "L"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain"
+characteristics = ["determinism"]
+family = "exact"
+check = "review"
+status = "planned"
+
+[[rule]]
+id = "D9"
+group = "D"
+title = "No engine-specific attributes in the core entity"
+kind = "Q+L"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain (a core entity that several engines read)"
+characteristics = ["determinism"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "D10"
+group = "D"
+title = "Every component has its contract page and reads only its declared inputs"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain"
+characteristics = ["exactness", "determinism"]
+family = "exact"
+check = "inventory"
+reimplementation = "whole"
+status = "planned"
+
+[[rule]]
+id = "D11"
+group = "D"
+title = "Projections only read"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Contracts, Application"
+characteristics = ["determinism"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "D12"
+group = "D"
+title = "No hash-ordered collections in the core"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain"
+characteristics = ["determinism"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "D13"
+group = "D"
+title = "Three distinct time types"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Infrastructure (the clock wrapper), Application, Host, tests"
+characteristics = ["determinism"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+# --- group G ------------------------------------------------------------------------------------------------------------------------
+
+[[rule]]
+id = "G2"
+group = "G"
+title = "The structure report"
+kind = "report"
+cadence = "nightly"
+extent = "holistic"
+applies_to = "repo"
+characteristics = ["simplicity"]
+family = "ousterhout"
+check = "report"
+status = "planned"
+
+[[rule]]
+id = "G3"
+group = "G"
+title = "A complexity ceiling"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "production code"
+characteristics = ["simplicity"]
+family = "ousterhout"
+check = "architecture"
+reimplementation = "clause"
+status = "planned"
+
+[[rule]]
+id = "G4"
+group = "G"
+title = "Size backstops, never targets"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "production code"
+characteristics = ["simplicity"]
+family = "ousterhout"
+check = "architecture"
+reimplementation = "clause"
+status = "planned"
+
+[[rule]]
+id = "G7"
+group = "G"
+title = "No magic numbers in the domain"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain"
+characteristics = ["simplicity"]
+family = "ousterhout"
+check = "architecture"
+reimplementation = "clause"
+status = "planned"
+
+[[rule]]
+id = "G11"
+group = "G"
+title = "Named shapes, not positions"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all production packages"
+characteristics = ["simplicity"]
+family = "ousterhout"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "G12"
+group = "G"
+title = "Every public member is documented"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain, Contracts"
+characteristics = ["simplicity"]
+family = "ousterhout"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "G13"
+group = "G"
+title = "A design rubric of complexity red flags"
+kind = "L"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all"
+characteristics = ["simplicity"]
+family = "ousterhout"
+check = "review"
+status = "planned"
+
+# --- group E ------------------------------------------------------------------------------------------------------------------------
+
+[[rule]]
+id = "E1"
+group = "E"
+title = "No test doubles except Nullables"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "E2"
+group = "E"
+title = "Test through the public interface, with no hooks"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "E3"
+group = "E"
+title = "Each test package has one kind"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "tests"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "E5"
+group = "E"
+title = "Every wrapper and service is Nullable"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Infrastructure, Application"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "E8"
+group = "E"
+title = "Speed budgets and a wall-time ratchet"
+kind = "Q"
+cadence = "commit"
+extent = "holistic"
+applies_to = "tests, tools"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "inventory"
+status = "planned"
+
+[[rule]]
+id = "E9"
+group = "E"
+title = "Interactions checked only at the unmanaged edge"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "tests"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "E10"
+group = "E"
+title = "Properties per aggregate, of the right kinds"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "tests"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "E11"
+group = "E"
+title = "Tests read as behaviour, one act each"
+kind = "Q+L"
+cadence = "commit"
+extent = "atomic"
+applies_to = "tests"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "E12"
+group = "E"
+title = "Red before green"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "E13"
+group = "E"
+title = "Tests are independent of order, time and repetition"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "tests, Application"
+characteristics = ["determinism", "testability"]
+family = "khorikov-shore"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "E14"
+group = "E"
+title = "Coverage and defect counts are tripwires, not targets"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "inventory"
+status = "planned"
+
+[[rule]]
+id = "E15"
+group = "E"
+title = "Exact comparison against the reference program"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "exact-comparison tests"
+characteristics = ["exactness", "testability"]
+family = "khorikov-shore"
+check = "inventory"
+reimplementation = "whole"
+status = "planned"
+
+[[rule]]
+id = "E16"
+group = "E"
+title = "Test data comes from builders"
+kind = "Q+L"
+cadence = "commit"
+extent = "atomic"
+applies_to = "tests"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "E17"
+group = "E"
+title = "One contract test list per wrapper, run on both forms"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Infrastructure, narrow integration tests"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "E21"
+group = "E"
+title = "Each wrapper declares its failure modes"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Infrastructure, Application, Host"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "E22"
+group = "E"
+title = "Every test asserts something"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "tests"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "E23"
+group = "E"
+title = "Refactoring commits leave tests alone"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "E25"
+group = "E"
+title = "No test leaks the algorithm"
+kind = "Q+L"
+cadence = "commit"
+extent = "atomic"
+applies_to = "tests"
+characteristics = ["exactness", "testability"]
+family = "khorikov-shore"
+check = "architecture"
+reimplementation = "clause"
+status = "planned"
+
+[[rule]]
+id = "E26"
+group = "E"
+title = "A small smoke tier"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Host, tests"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "inventory"
+status = "planned"
+
+[[rule]]
+id = "E30"
+group = "E"
+title = "Quarantine is recorded data"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "tests"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "E31"
+group = "E"
+title = "The same inputs give the same state"
+kind = "Q"
+cadence = "nightly"
+extent = "atomic"
+applies_to = "Application, tests"
+characteristics = ["determinism", "testability"]
+family = "khorikov-shore"
+check = "inventory"
+status = "planned"
+
+[[rule]]
+id = "E32"
+group = "E"
+title = "Many-seed simulation with invariants and reached checks"
+kind = "Q"
+cadence = "nightly"
+extent = "atomic"
+applies_to = "Application, tests"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "inventory"
+status = "planned"
+
+[[rule]]
+id = "E33"
+group = "E"
+title = "Hygiene for snapshot tests"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "tests"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "E34"
+group = "E"
+title = "Mutation ratchet"
+kind = "Q"
+cadence = "nightly"
+extent = "atomic"
+applies_to = "Kernel, Domain"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "mutation"
+status = "planned"
+
+[[rule]]
+id = "E35"
+group = "E"
+title = "Store narrow tests assert behaviour through read-back"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "narrow integration tests"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "E36"
+group = "E"
+title = "One shared, language-neutral behaviour suite"
+kind = "Q"
+cadence = "commit"
+extent = "holistic"
+applies_to = "spec/, every implementation's tests"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "inventory"
+status = "planned"
+
+[[rule]]
+id = "E37"
+group = "E"
+title = "Comparing tests pin what they compared"
+kind = "process"
+cadence = "commit"
+extent = "atomic"
+applies_to = "tests"
+characteristics = ["testability"]
+family = "khorikov-shore"
+check = "process"
+origin = "guide"
+status = "process"
+
+# --- group B ------------------------------------------------------------------------------------------------------------------------
+
+[[rule]]
+id = "B1"
+group = "B"
+title = "The dependency graph equals the context map"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "the context map"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B3"
+group = "B"
+title = "Each aggregate is a decider"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B4"
+group = "B"
+title = "The ubiquitous language is the glossary"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain, Contracts, glossary"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B5"
+group = "B"
+title = "Aggregates refer to each other by identifier"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B6"
+group = "B"
+title = "One decision changes one aggregate"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B7"
+group = "B"
+title = "Domain events are past-tense facts"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain, Contracts"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B8"
+group = "B"
+title = "Stores exist only for aggregate roots"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Application, Infrastructure"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B9"
+group = "B"
+title = "Value objects have structural equality"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain, Contracts"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B11"
+group = "B"
+title = "The model speaks the language of the business"
+kind = "L"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "review"
+status = "planned"
+
+[[rule]]
+id = "B12"
+group = "B"
+title = "Several aggregates in one entry only by name"
+kind = "Q+L"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Application"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B13"
+group = "B"
+title = "Each context declares its kind and style"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "the context map"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B14"
+group = "B"
+title = "Generic code knows nothing of the core"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, generic contexts"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B15"
+group = "B"
+title = "Public events are distinct from internal events"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain, Contracts"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B17"
+group = "B"
+title = "Upstream contracts are named only by inbound translation"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B18"
+group = "B"
+title = "Each aggregate exposes its invariants"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain, Application, tests"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B19"
+group = "B"
+title = "Create and reconstitute are separate"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain, Application, Import"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B20"
+group = "B"
+title = "Every cross-aggregate reaction is listed in the policy table"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Application, standards"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B21"
+group = "B"
+title = "Process manager shape and attribute"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Application or a process context"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B22"
+group = "B"
+title = "No pattern-named or vague names"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Domain, Contracts, Application"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B23"
+group = "B"
+title = "The public surface is committed"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Contracts, ports, tests"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B24"
+group = "B"
+title = "The kernel is a shared kernel"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "B25"
+group = "B"
+title = "Aggregate size"
+kind = "Q"
+cadence = "nightly"
+extent = "atomic"
+applies_to = "Domain"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "B26"
+group = "B"
+title = "A short, approved product vision"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "standards"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "B27"
+group = "B"
+title = "A stricter gate for the core"
+kind = "Q"
+cadence = "commit"
+extent = "holistic"
+applies_to = "core contexts"
+characteristics = ["testability", "exactness"]
+family = "evans-vernon"
+check = "history"
+status = "planned"
+
+# --- group M ------------------------------------------------------------------------------------------------------------------------
+
+[[rule]]
+id = "M1"
+group = "M"
+title = "Every contracts type is one message kind"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Contracts"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "M2"
+group = "M"
+title = "Every journaled event has a causal envelope"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Application, Infrastructure"
+characteristics = ["recoverability", "determinism"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "M3"
+group = "M"
+title = "Single declared in-process event dispatcher"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Application"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "M4"
+group = "M"
+title = "Persist before publish"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Application, Infrastructure"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "inventory"
+status = "planned"
+
+[[rule]]
+id = "M5"
+group = "M"
+title = "Handler reads publisher's view as of the event's sequence number"
+kind = "Q+L"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Contracts, Application"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "M6"
+group = "M"
+title = "No dead letter in the core"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Application, Infrastructure"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "M7"
+group = "M"
+title = "One writer per stored instance"
+kind = "Q+L"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Application, Host, Infrastructure"
+characteristics = ["evolvability"]
+family = "evans-vernon"
+check = "architecture"
+status = "planned"
+
+# --- group P ------------------------------------------------------------------------------------------------------------------------
+
+[[rule]]
+id = "P2"
+group = "P"
+title = "Persisted forms are plain data-transfer objects"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Codec, Kernel, Domain, Contracts"
+characteristics = ["recoverability"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "P3"
+group = "P"
+title = "Persisted forms are versioned and proved"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Codec, Infrastructure, Host, tests"
+characteristics = ["recoverability"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "P4"
+group = "P"
+title = "Golden saves"
+kind = "Q"
+cadence = "on-demand"
+extent = "atomic"
+applies_to = "narrow integration tests, standards"
+characteristics = ["recoverability"]
+family = "exact"
+check = "inventory"
+status = "planned"
+
+[[rule]]
+id = "P5"
+group = "P"
+title = "The journal is append-only and gap-free per branch"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Infrastructure (the store)"
+characteristics = ["recoverability"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "P6"
+group = "P"
+title = "Command ids are made at the edge"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Contracts, Host, Infrastructure"
+characteristics = ["recoverability"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "P7"
+group = "P"
+title = "One accepted command is one atomic journal entry"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Infrastructure, Application"
+characteristics = ["recoverability"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "P8"
+group = "P"
+title = "A snapshot records AtSeq and a checksum"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Infrastructure, Application"
+characteristics = ["recoverability"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "P9"
+group = "P"
+title = "Crash injection"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "tests, Infrastructure"
+characteristics = ["recoverability"]
+family = "exact"
+check = "inventory"
+status = "planned"
+
+[[rule]]
+id = "P10"
+group = "P"
+title = "The archive and every projection are written only by the store through one derivation entry"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Infrastructure, Application, Contracts"
+characteristics = ["recoverability"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "P11"
+group = "P"
+title = "Events carry the facts they used"
+kind = "Q+L"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Contracts, Domain"
+characteristics = ["recoverability"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "P12"
+group = "P"
+title = "Commands carry the position they were based on"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Contracts, Application"
+characteristics = ["recoverability"]
+family = "exact"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "P13"
+group = "P"
+title = "A tool that rewrites a file"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "tools"
+characteristics = ["recoverability"]
+family = "exact"
+check = "inventory"
+status = "planned"
+
+[[rule]]
+id = "P15"
+group = "P"
+title = "Persisted or sorted unions are append-only"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Kernel, Domain, Contracts"
+characteristics = ["recoverability"]
+family = "exact"
+check = "history"
+status = "planned"
+
+# --- group R ------------------------------------------------------------------------------------------------------------------------
+
+[[rule]]
+id = "R1"
+group = "R"
+title = "Reliability targets with error budgets"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "tooling"
+characteristics = ["recoverability"]
+family = "sre"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "R2"
+group = "R"
+title = "Each journal entry carries the previous entry's hash"
+kind = "Q"
+cadence = "nightly"
+extent = "atomic"
+applies_to = "Infrastructure, Application"
+characteristics = ["recoverability"]
+family = "sre"
+check = "inventory"
+status = "planned"
+
+[[rule]]
+id = "R3"
+group = "R"
+title = "Nightly backup restore and integrity drill"
+kind = "Q"
+cadence = "nightly"
+extent = "atomic"
+applies_to = "Application, Infrastructure, Host"
+characteristics = ["recoverability"]
+family = "sre"
+check = "inventory"
+status = "planned"
+
+[[rule]]
+id = "R4"
+group = "R"
+title = "Repair and migration tools require a verified copy"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "tools"
+characteristics = ["recoverability"]
+family = "sre"
+check = "inventory"
+status = "planned"
+
+[[rule]]
+id = "R5"
+group = "R"
+title = "Defects promote a check"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "repo, process"
+characteristics = ["recoverability"]
+family = "sre"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "R6"
+group = "R"
+title = "Crash reports carry journal tail, seed, and build id"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "Host, tooling"
+characteristics = ["recoverability"]
+family = "sre"
+check = "inventory"
+status = "planned"
+
+[[rule]]
+id = "R8"
+group = "R"
+title = "Staged rollout"
+kind = "process"
+cadence = "on-demand"
+extent = "holistic"
+applies_to = "Host, process"
+characteristics = ["recoverability"]
+family = "sre"
+check = "process"
+status = "process"
+
+# --- group S ------------------------------------------------------------------------------------------------------------------------
+
+[[rule]]
+id = "S1"
+group = "S"
+title = "Every backlog item serves something"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "backlog, process"
+characteristics = ["simplicity"]
+family = "ousterhout"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "S2"
+group = "S"
+title = "Budgets and trends reported each session"
+kind = "Q"
+cadence = "commit"
+extent = "holistic"
+applies_to = "standards, tooling"
+characteristics = ["simplicity"]
+family = "ousterhout"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "S3"
+group = "S"
+title = "One reviewed exemplar per recurring need"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all"
+characteristics = ["simplicity"]
+family = "ousterhout"
+check = "architecture"
+status = "planned"
+
+[[rule]]
+id = "S4"
+group = "S"
+title = "Design it twice, interface first"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "process, specs"
+characteristics = ["simplicity"]
+family = "ousterhout"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "S5"
+group = "S"
+title = "Branches are short-lived"
+kind = "Q"
+cadence = "commit"
+extent = "holistic"
+applies_to = "repo"
+characteristics = ["evolvability"]
+family = "ousterhout"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "S7"
+group = "S"
+title = "Research is standing, adoption is evaluated"
+kind = "process"
+cadence = "on-demand"
+extent = "holistic"
+applies_to = "process, knowledge base"
+characteristics = ["simplicity"]
+family = "ousterhout"
+check = "process"
+status = "process"
+
+[[rule]]
+id = "S8"
+group = "S"
+title = "Spikes are thrown away"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "spikes, repo"
+characteristics = ["simplicity"]
+family = "ousterhout"
+check = "history"
+status = "planned"
+
+[[rule]]
+id = "S9"
+group = "S"
+title = "No push before review where green branches land by themselves"
+kind = "process"
+cadence = "commit"
+extent = "holistic"
+applies_to = "repo, process"
+characteristics = ["testability"]
+family = "llm-gates"
+check = "process"
+origin = "guide"
+status = "process"
+
+# --- group V ------------------------------------------------------------------------------------------------------------------------
+
+[[rule]]
+id = "V1"
+group = "V"
+title = "Rubric items are binary questions"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "standards/rubrics"
+characteristics = ["testability"]
+family = "llm-gates"
+check = "review"
+status = "planned"
+
+[[rule]]
+id = "V2"
+group = "V"
+title = "The automated reviewer is blind and isolated"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "review runner, agent loop"
+characteristics = ["testability"]
+family = "llm-gates"
+check = "review"
+status = "planned"
+
+[[rule]]
+id = "V3"
+group = "V"
+title = "Review findings are verified records"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "review runner"
+characteristics = ["testability"]
+family = "llm-gates"
+check = "review"
+status = "planned"
+
+[[rule]]
+id = "V4"
+group = "V"
+title = "The reviewer is calibrated on labelled cases"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "standards/review-cases, evals"
+characteristics = ["testability"]
+family = "llm-gates"
+check = "review"
+status = "planned"
+
+[[rule]]
+id = "V5"
+group = "V"
+title = "No review on a stale calibration"
+kind = "Q"
+cadence = "nightly"
+extent = "atomic"
+applies_to = "review runner"
+characteristics = ["testability"]
+family = "llm-gates"
+check = "review"
+status = "planned"
+
+[[rule]]
+id = "V6"
+group = "V"
+title = "A second reviewer from another model family"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "review runner"
+characteristics = ["testability"]
+family = "llm-gates"
+check = "review"
+status = "planned"
+
+[[rule]]
+id = "V7"
+group = "V"
+title = "A findings ledger promotes repeat concerns"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "review runner"
+characteristics = ["testability"]
+family = "llm-gates"
+check = "review"
+status = "planned"
+
+[[rule]]
+id = "V8"
+group = "V"
+title = "Protected paths checked before review"
+kind = "Q"
+cadence = "commit"
+extent = "atomic"
+applies_to = "all"
+characteristics = ["testability"]
+family = "llm-gates"
+check = "review"
+status = "planned"

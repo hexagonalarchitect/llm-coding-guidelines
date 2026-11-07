@@ -1,0 +1,161 @@
+# Speed budgets for the gate: a starter for a new project. Copy it to standards/budgets.toml.
+#
+# Read by the inventory check (each test against its tier's budget, E8) and by the gate pipeline (each stage against its track's budget, and
+# the wall-time ratchet, E8; the flaky-run share, R1). A test over its budget, or a stage over its budget, turns the gate red.
+#
+# Where the numbers come from: the reference code base's budgets file, measured on its Rust workspace on a 4-core cloud container and on a
+# shared CI runner, with headroom (about 1.5 to 2 times the slower measured run). They are a starting point, not a standard. Before the
+# first commit that enforces them, run the gate a few times on your own stack, on the developer machine and on CI, cold and warm, and set
+# each budget to about 1.5 times the slower run. Stacks differ most in start-up and build cost: a JVM starts in about half a second to a
+# second per process and a Gradle or Maven build pays a daemon or plug-in warm-up, Node pays module loading, .NET pays a slow design-time
+# lint; per-test budgets are rarely affected, stage budgets always are. Measure first, then write the number down with where it came from.
+#
+# This is a principle file (F4): a budget is lowered freely, but raising one, removing one or removing a tier is a loosening and needs a
+# dated approval in the commit, with the runs measured and the cause (a decision record). Removing a stage's budget counts as a loosening
+# even when the stage itself is gone, so keep the row with a comment instead. Fix slowness by profiling, never by cutting cases, raising a
+# per-test budget or moving a test to another tier.
+
+# ---------------------------------------------------------------------------------------------------------------------------------------
+# Test tiers (E8, E3). Each test package belongs to one tier; `max_ms` is the most ONE test may take, `total_max_s` the most the whole
+# package's run may take. A test slower than its tier goes in the nightly list, which the gate does not run; an untagged slow test fails.
+
+# Output-based tests of Kernel and Domain, in memory: the bulk of the suite. 20 ms in the reference, where property tests over a few
+# hundred to a few thousand generated cases fit; a shared CI runner was about 2.5 to 4 times slower than the developer container, and tests
+# at 5 to 7 ms locally reached 20 ms there, so keep local times well under the budget.
+[tiers.logic]
+max_ms = 20
+
+# Workflows through Application with Nullable edges (E3, E5), in memory. 200 ms in the reference: a whole simulated period of a small world.
+[tiers.scenario]
+max_ms = 200
+
+# Narrow integration tests: one real wrapper each, touching its real edge (a temporary file, a local socket, a real database file) (E3, E17).
+# 200 ms in the reference, including a real flush to disk. Disk and socket speed vary most between machines: measure on CI.
+[tiers.integration]
+max_ms = 200
+
+# Exact-comparison tests against a reference program's recordings (E15, E36): one test per case file. 200 ms in the reference.
+# Only when reimplementing a reference program; delete otherwise.
+[tiers.exact]
+max_ms = 200
+
+# The architecture tests as a whole (A, B, C, D, F, G and M rules' static checks and the F5 meta-tests): 10 s in the reference. On the JVM
+# or .NET, where the checks may load compiled classes or a compiler service, measure this one first.
+[tiers.architecture]
+total_max_s = 10
+
+# Each test package's tier, by package name (the inventory check fails on a test package with no entry). Examples:
+# [tiers.packages]
+# "kernel" = "logic"
+# "orders-domain" = "logic"
+# "orders-application" = "scenario"
+# "orderstore" = "integration"
+# "architecture-tests" = "architecture"
+[tiers.packages]
+
+# ---------------------------------------------------------------------------------------------------------------------------------------
+# Gate stages (E8). Each stage's wall time, in seconds, per track. A track is one kind of run, judged and ratcheted apart from the others so
+# that a cold run neither fails against the warm medians nor, once recorded, loosens them. The gate picks the track: `ci` or `ci-cold` on
+# CI (cold when no build cache was restored), `local-cold` when the build output folders are missing, `local` otherwise. `total` is the
+# whole run's budget for that track.
+#
+# Stage names: restore (packages), format (formatter in check mode), build, lint (linter and analyzers), architecture (the architecture
+# tests), tests (every other gate test), breaches (the planted breaches, F5: build each and expect its rule alone to fail), history (the
+# history check on the commit range), inventory (the test inventory and per-test budgets), review (the model-review runner's mechanical part).
+# Rename them to your gate's stages; a stage with no row is not judged, so give every stage a row.
+
+# A warm local run: one domain file touched, build output present. From the reference's Rust track on a 4-core container (format 5, build
+# 40, lint 30, tests 30, breaches 40) and its earlier .NET track (restore 10, architecture 10, history 10, inventory 5, review 10).
+[stages.local]
+total = 120          # the full gate under 2 minutes (E8); the reference's measured warm Rust run was well under a minute
+restore = 10
+format = 5
+build = 40
+lint = 30
+architecture = 10
+tests = 30
+breaches = 40
+history = 10
+inventory = 5
+review = 10
+
+# A cold local run: a fresh clone, or the build output removed. The reference measured a cold Rust run at 48 s on the container and the
+# breach stage at 41 s on a slower PC; its budgets are about twice the slower machine. restore, architecture, history, inventory and
+# review come from its .NET track's cold nightly budgets.
+[stages.local-cold]
+total = 240
+restore = 20
+format = 10
+build = 60
+lint = 45
+architecture = 15
+tests = 30
+breaches = 90
+history = 10
+inventory = 5
+review = 15
+
+# CI with warm caches. From the reference's Rust runs on a hosted runner (total 49 to 58 s), at about 1.5 times the slower run. The test
+# stage was raised from 6 s to 10 s, with a recorded decision, when narrow tests with real disk syncs and sockets arrived (6.3 to 6.5 s on
+# the runner against 2.6 s on the container). restore, architecture, history, inventory and review come from the reference's earlier .NET
+# track's CI budgets, where those were separate stages.
+[stages.ci]
+total = 90
+restore = 30
+format = 5
+build = 30
+lint = 12
+architecture = 16
+tests = 10
+breaches = 60
+history = 10
+inventory = 10
+review = 12
+
+# CI with no restored build cache (a branch's first push). Measured in the reference at build 31, lint 12, tests 6.3, breaches 54, total
+# 104 s; budgets about 1.5 to 2 times that. The reference had no cold CI numbers for restore, architecture, history, inventory and review:
+# those five are this template's guesses, to be replaced by the first measured runs.
+[stages.ci-cold]
+total = 180
+restore = 30
+format = 5
+build = 75
+lint = 30
+architecture = 20
+tests = 15
+breaches = 90
+history = 10
+inventory = 10
+review = 15
+
+# The quick inner-loop check an agent runs after each edit (E8: under 15 s), judged and ratcheted like a stage.
+[stages.quick]
+quick = 15
+
+# ---------------------------------------------------------------------------------------------------------------------------------------
+# The wall-time ratchet (E8): a stage, or the whole run, more than `max_growth` over the median of its last `window_runs` green runs on the
+# same track fails unless the commit records a reason for that stage. As implemented in the reference's pipeline: it judges a stage only
+# once it has `min_runs` earlier green runs, and ignores a growth under `min_seconds` (the cloud's noise lies below it), so that many stages
+# each slightly slower are still caught by the whole-run judgement.
+[ratchet]
+max_growth = 0.10
+window_runs = 20
+min_runs = 5
+min_seconds = 1.0
+
+# ---------------------------------------------------------------------------------------------------------------------------------------
+# The gate's own reliability indicators (R1), from the reference's service-level file, strict from the start. Product indicators (crash-free
+# sessions, saves that load back exactly) go beside them once the product has sessions and saves; exactness and replay divergence are zero
+# tolerance, never budgets.
+
+# The share of gate runs that fail and then pass on the same commit. A timing-only re-run counts as flaky unless recorded otherwise.
+[budget.flaky_gate_runs]
+max = 0.01
+window = "the last 100 gate runs"
+min_sample = 20
+
+# The warm gate's wall time (the same number as [stages.local].total; a track's own `total` replaces it for that track).
+[budget.gate_time]
+max_seconds = 120
+window = "each run"
+min_sample = 1
